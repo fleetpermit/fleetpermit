@@ -1,0 +1,17 @@
+# Proposes updates for Go modules, pinned GitHub Actions and the builder
+# image. Upstream API pins (OCM, kube-agentic-networking, Gateway API) are
+# tracked separately by the upstream canary workflow.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      kubernetes: {patterns: ["k8s.io/*", "sigs.k8s.io/*"]}
+      opentelemetry: {patterns: ["go.opentelemetry.io/*"]}
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+  - package-ecosystem: docker
+    directory: /
+    schedule: {interval: weekly}

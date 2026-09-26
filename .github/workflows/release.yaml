@@ -1,20 +1,25 @@
-# Publishes images to ghcr.io and a Helm chart package when a v* tag is pushed.
-# Everything else about a release (tests, SBOM) is produced by make targets.
+# Publishes signed images to ghcr.io and signed release assets (Helm chart,
+# SPDX SBOM) when a v* tag is pushed. Signing is keyless with Sigstore cosign
+# using the workflow's OIDC identity; see docs/operations.md#verifying-releases.
 name: Release
 on:
   push:
     tags: ["v*"]
 permissions:
-  contents: write
-  packages: write
+  contents: read
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # attach assets to the GitHub release
+      packages: write   # push images to ghcr.io
+      id-token: write   # keyless signing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Install Helm
         run: ./hack/install-helm.sh
       - name: Test
@@ -23,14 +28,21 @@ jobs:
         env:
           REGISTRY: ghcr.io/${{ github.repository_owner }}
           TAG: ${{ github.ref_name }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${REGISTRY_TOKEN}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           ./hack/publish-images.sh "${REGISTRY}" "${TAG}"
       - name: SBOM and chart
         run: |
           make sbom
           helm package charts/fleetpermit --version "${GITHUB_REF_NAME#v}" --app-version "${GITHUB_REF_NAME}" -d dist
+      - name: Sign images and release assets
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${REGISTRY_TOKEN}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ./hack/sign-release.sh dist/images.txt dist/*.tgz dist/*.spdx.json
       - name: Attach artifacts to the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" dist/*.tgz dist/*.spdx.json dist/*.sigstore.json dist/images.txt --clobber

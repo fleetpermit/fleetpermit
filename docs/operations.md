@@ -49,6 +49,25 @@ helm install fleetpermit charts/fleetpermit -n fleetpermit-system --create-names
 Images are static Go binaries on `scratch`, run as UID 65532, and contain only the binary and CA
 certificates.
 
+## Verifying releases
+
+From v0.1.0 on, release images and assets are signed keylessly with Sigstore cosign by the release
+workflow. The workflow's GitHub OIDC identity is recorded in the public Rekor transparency log.
+
+```sh
+# an image (use the digest from images.txt attached to the release)
+cosign verify ghcr.io/fleetpermit/fleetpermit-controller@sha256:<digest> \
+  --certificate-identity-regexp '^https://github.com/fleetpermit/fleetpermit/.github/workflows/(release|sign-release).yaml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# a release asset (the Helm chart, the SBOM)
+cosign verify-blob fleetpermit-0.1.0.tgz --bundle fleetpermit-0.1.0.tgz.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/fleetpermit/fleetpermit/.github/workflows/(release|sign-release).yaml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Release tags and every commit are also signed and show as Verified on GitHub.
+
 ## RBAC
 
 Generated from the `+kubebuilder:rbac` markers in `internal/controller` ([`config/rbac/role.yaml`](../config/rbac/role.yaml)):

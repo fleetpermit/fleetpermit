@@ -124,6 +124,13 @@ test-unit: ## Run unit tests with the race detector and record results and cover
 	  { jq -r 'select(.Action=="output") | .Output' $(TEST_OUT)/unit.jsonl | grep -v '^=== ' | tail -80; exit 1; }
 	@echo "unit: $$(grep -c '"Action":"pass","Package":"[^"]*","Test"' $(TEST_OUT)/unit.jsonl) tests passed"
 
+FUZZTIME ?= 30s
+
+.PHONY: fuzz
+fuzz: ## Fuzz the renderer's injection defence and lease evaluation (FUZZTIME=30s each).
+	go test ./internal/enforcement/agenticnetworking/ -run '^$$' -fuzz FuzzRenderNeverEmitsUnsafeCEL -fuzztime $(FUZZTIME)
+	go test ./internal/lease/ -run '^$$' -fuzz FuzzEvaluateNeverWidens -fuzztime $(FUZZTIME)
+
 .PHONY: test-integration
 test-integration: $(SETUP_ENVTEST) ## Run integration tests against a real kube-apiserver (envtest).
 	mkdir -p $(TEST_OUT)
