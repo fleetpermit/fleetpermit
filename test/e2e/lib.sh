@@ -89,6 +89,35 @@ wait_decision() {
   done
 }
 
+# wait_decisions <t0-ms> <agent> <tool> <timeout-s> <cluster>=<ALLOW|DENY>...
+# Polls every listed cluster at the same time, so waiting on one cluster
+# never delays the measurement of another. Prints "<cluster> <ms> <probe json>"
+# per cluster, where <ms> runs from t0 to the timestamp of the first probe
+# that returned the wanted decision (-1 on timeout). Returns non-zero if any
+# cluster timed out.
+wait_decisions() {
+  local t0="$1" agent="$2" tool="$3" timeout="$4"; shift 4
+  local dir spec pid line json ms rc=0 pids=()
+  dir="$(mktemp -d)"
+  for spec in "$@"; do
+    wait_decision "$agent" "${spec%%=*}" "$tool" "${spec#*=}" "$timeout" >"$dir/${spec%%=*}" &
+    pids+=("$!")
+  done
+  for pid in "${pids[@]}"; do wait "$pid" || rc=1; done
+  for spec in "$@"; do
+    line="$(cat "$dir/${spec%%=*}")"
+    json="${line#* }"
+    ms=-1
+    [[ "${line%% *}" == -1 ]] || ms=$(( $(iso_ms "$(jq -r .timestamp <<<"$json")") - t0 ))
+    printf '%s %s %s\n' "${spec%%=*}" "$ms" "$json"
+  done
+  rm -rf "$dir"
+  return "$rc"
+}
+
+# pick <cluster> <wait_decisions output>: prints "<ms> <probe json>" for the cluster.
+pick() { grep "^$1 " <<<"$2" | cut -d' ' -f2-; }
+
 apply_placement() {
   hub apply -f - >/dev/null <<EOF
 apiVersion: cluster.open-cluster-management.io/v1beta1

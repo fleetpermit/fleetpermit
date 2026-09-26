@@ -99,11 +99,12 @@ s4() {
 }
 
 s1() {
-  local t0 east west ready ev st=pass
+  local t0 out east west ready ev st=pass
   t0=$(now_ms)
   create_lease e2e-s1 5m restart_workload,get_cluster_health
-  east="$(wait_decision sre-agent cluster-east restart_workload ALLOW 60)" || st=fail
-  west="$(wait_decision sre-agent cluster-west restart_workload ALLOW 60)" || st=fail
+  out="$(wait_decisions "$t0" sre-agent restart_workload 60 cluster-east=ALLOW cluster-west=ALLOW)" || st=fail
+  east="$(pick cluster-east "$out")"
+  west="$(pick cluster-west "$out")"
   local te=$(( $(cut -d' ' -f1 <<<"$east") )) tw=$(( $(cut -d' ' -f1 <<<"$west") ))
   # Slow activations are kept diagnosable: capture hub and work-agent logs.
   if (( te > 2000 || tw > 2000 )); then
@@ -182,11 +183,12 @@ s16() {
 }
 
 s_revoke() {
-  local t0 east west st=pass
+  local t0 out east west st=pass
   t0=$(now_ms)
   delete_lease e2e-s1
-  east="$(wait_decision sre-agent cluster-east restart_workload DENY 60)" || st=fail
-  west="$(wait_decision sre-agent cluster-west restart_workload DENY 60)" || st=fail
+  out="$(wait_decisions "$t0" sre-agent restart_workload 60 cluster-east=DENY cluster-west=DENY)" || st=fail
+  east="$(pick cluster-east "$out")"
+  west="$(pick cluster-west "$out")"
   record R1 "Deleting a lease revokes it on every cluster" "$st" "DENY east+west" "DENY" \
     "$(arr "$(cut -d' ' -f2- <<<"$east")" "$(cut -d' ' -f2- <<<"$west")")" \
     "$(jq -cn --argjson e "$(cut -d' ' -f1 <<<"$east")" --argjson w "$(cut -d' ' -f1 <<<"$west")" '{revocationToDenyMsEast:$e, revocationToDenyMsWest:$w}')"
@@ -217,15 +219,16 @@ s5_s13() {
 }
 
 s7() {
-  local st=pass w e t0 west_deny edge_allow
+  local st=pass w e t0 out west_deny edge_allow
   create_lease e2e-s7 10m restart_workload
   wait_decision sre-agent cluster-west restart_workload ALLOW 60 >/dev/null || st=fail
   e="$(expect sre-agent cluster-edge restart_workload DENY)" || st=fail
   t0=$(now_ms)
   set_env_label cluster-west staging
   set_env_label cluster-edge production
-  west_deny="$(wait_decision sre-agent cluster-west restart_workload DENY 90)" || st=fail
-  edge_allow="$(wait_decision sre-agent cluster-edge restart_workload ALLOW 90)" || st=fail
+  out="$(wait_decisions "$t0" sre-agent restart_workload 90 cluster-west=DENY cluster-edge=ALLOW)" || st=fail
+  west_deny="$(pick cluster-west "$out")"
+  edge_allow="$(pick cluster-edge "$out")"
   record S7 "Placement change moves authorization (west out, edge in)" "$st" "west DENY, edge ALLOW" "west DENY, edge ALLOW" \
     "$(arr "$e" "$(cut -d' ' -f2- <<<"$west_deny")" "$(cut -d' ' -f2- <<<"$edge_allow")")" \
     "$(jq -cn --argjson a "$(cut -d' ' -f1 <<<"$west_deny")" --argjson b "$(cut -d' ' -f1 <<<"$edge_allow")" '{labelChangeToDenyMs:$a, labelChangeToAllowMs:$b}')"
@@ -296,12 +299,13 @@ s11_s12() {
   local before; before="$(probe sre-agent cluster-east restart_workload | jq -c .)"
   [[ "$(jq -r .decision <<<"$before")" == ALLOW ]] || st11=fail
   while (( $(now_ms) < exp_ms - 1500 )); do sleep 0.5; done
-  e="$(wait_decision sre-agent cluster-east restart_workload DENY 30)" || st11=fail
-  w="$(wait_decision sre-agent cluster-west restart_workload DENY 30)" || st11=fail
+  local out lat_e lat_w
+  out="$(wait_decisions "$exp_ms" sre-agent restart_workload 30 cluster-east=DENY cluster-west=DENY)" || st11=fail
+  e="$(pick cluster-east "$out")"
+  w="$(pick cluster-west "$out")"
   still="$(rendered_policy cluster-east)"
-  local lat_e lat_w
-  lat_e=$(( $(iso_ms "$(jq -r .timestamp <<<"$(cut -d' ' -f2- <<<"$e")")") - exp_ms ))
-  lat_w=$(( $(iso_ms "$(jq -r .timestamp <<<"$(cut -d' ' -f2- <<<"$w")")") - exp_ms ))
+  lat_e="$(cut -d' ' -f1 <<<"$e")"
+  lat_w="$(cut -d' ' -f1 <<<"$w")"
   [[ -n "$still" ]] || st11=fail
   record S11 "Hub disconnected before expiry: managed clusters stop honouring the lease on time" "$st11" \
     "DENY at expiry on east and west with the hub unreachable" \

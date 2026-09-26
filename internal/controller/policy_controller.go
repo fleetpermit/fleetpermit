@@ -369,11 +369,22 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 			if until := d.ExpiresAt.Sub(s.now); until > 0 && (next == 0 || until < next) {
 				next = until + 500*time.Millisecond
 			}
-			if len(rendered) == 0 && len(dropped) == 0 {
+			if len(rendered) == 0 {
+				// The lease grants nothing anywhere: no requested cluster is
+				// placed, or the rule limit was reached on every one of them.
 				st.Phase = fpv1.LeasePending
-				setCond(&st.Conditions, gen, fpv1.ConditionReady, false, d.Reason, d.Message)
-				setCond(&st.Conditions, gen, fpv1.ConditionProgressing, false, d.Reason, d.Message)
-				setCond(&st.Conditions, gen, fpv1.ConditionDegraded, false, d.Reason, "")
+				reason, msg := d.Reason, d.Message
+				if len(dropped) > 0 {
+					reason = fpv1.ReasonCapacityExceeded
+					msg = "the enforcement layer's rule limit was reached on: " + strings.Join(dropped, ", ")
+				}
+				setCond(&st.Conditions, gen, fpv1.ConditionReady, false, reason, msg)
+				setCond(&st.Conditions, gen, fpv1.ConditionProgressing, false, reason, msg)
+				if len(dropped) > 0 {
+					setCond(&st.Conditions, gen, fpv1.ConditionDegraded, true, reason, msg)
+				} else {
+					setCond(&st.Conditions, gen, fpv1.ConditionDegraded, false, reason, "")
+				}
 				break
 			}
 			active++

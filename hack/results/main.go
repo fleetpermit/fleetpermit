@@ -76,7 +76,7 @@ func main() {
 	if conf != nil {
 		out["conformance"] = conf
 	}
-	// Independent reproductions of the e2e suite (other hosts, engines, architectures).
+	// Reproductions of the e2e suite on other hosts (for example a GitHub-hosted runner).
 	if files, _ := filepath.Glob(filepath.Join(res, "reproductions", "*.json")); len(files) > 0 {
 		var reps []map[string]any
 		for _, f := range files {
@@ -367,16 +367,27 @@ func markdown(out map[string]any) string {
 			w("| %s | %d | %d | %d | %d | %d | %s |\n", l.Label, len(l.Samples), l.P50, l.P95, l.Min, l.Max, l.Source)
 		}
 		w("\n")
-		w("Sources of variance, observed in these runs:\n\n")
-		w("- Each sample includes one host-to-pod probe round trip (see the baseline row), and polling adds up to about 250 ms.\n")
-		w("- Occasional activation outliers of a few seconds come from the OCM work agent retrying, with backoff, a status update that conflicted with FleetPermit's spec update on the same ManifestWork (`Operation cannot be fulfilled ... the object has been modified` in the work-agent log).\n")
-		w("- Drift recovery is bounded by the klusterlet status sync interval (10 s in the lab): FleetPermit requests an immediate re-apply once OCM reports the object missing.\n")
-		w("- Ready status includes OCM status feedback, so it depends on the same status sync interval.\n")
-		w("- **Open issue:** in end-to-end runs, the first lease after lab setup has repeatedly reached one cluster about 5 s late while the other cluster took about 130 ms. The OCM work agent on the slow cluster applied the change about 5 s after the lease was created, and the gateway allowed the call about 0.4 s after that apply, so the delay is between the hub and that work agent. It did not reproduce in isolation (182 ms), and every later activation in the benchmark took 170–460 ms. The suite now captures hub and work-agent logs whenever an activation exceeds 2 s (`test-results/diagnostics/`). In the capture from the latest run, the FleetPermit controller logged no delivery error, and the slow cluster's work agent logged nothing until it applied the change about 6 s after the lease was created, while the other cluster applied it immediately. This places the delay in OCM's delivery of the ManifestWork change to that one agent. It is being investigated for an upstream report.\n\n")
+		w("Sources of variance in these runs:\n\n")
+		w("- Each sample includes one host-to-pod probe round trip (see the baseline row). Probes repeat every 250 ms, which adds up to 250 ms more.\n")
+		sync := "the klusterlet status sync interval"
+		if env, ok := out["benchmarkEnvironment"].(map[string]any); ok && str(env["ocmStatusSyncInterval"]) != "" {
+			sync += " (" + str(env["ocmStatusSyncInterval"]) + " in the lab)"
+		}
+		w("- Drift recovery is bounded by %s: FleetPermit requests an immediate re-apply once OCM reports the object missing.\n", sync)
+		w("- Ready status includes OCM status feedback, so it depends on the same interval.\n")
+		if e2e, ok := out["e2e"].(map[string]any); ok {
+			if east, west, ok := s1Activation(e2e); ok && math.Max(east, west) > 2000 {
+				w("- Open issue: in this run the first lease after lab setup reached cluster-east after %.0f ms and cluster-west after %.0f ms. "+
+					"The suite captures hub and work-agent logs whenever an activation takes longer than 2 s. In the captures so far, the FleetPermit controller "+
+					"logged no delivery error and the slow cluster's work agent applied the change late while the other applied it at once, which places the "+
+					"delay in OCM's delivery of the ManifestWork change to one agent. It is still being investigated.\n", east, west)
+			}
+		}
+		w("\n")
 	}
 
 	if reps, ok := out["reproductions"].([]map[string]any); ok && len(reps) > 0 {
-		w("## Independent reproductions\n\nThe same end-to-end suite run elsewhere, from a clean checkout:\n\n| Runner | OS/arch | Engine | Commit | Passed | Failed | Unsupported | Logs |\n|---|---|---|---|---|---|---|---|\n")
+		w("## Reproductions\n\nThe same end-to-end suite, run from a clean checkout on a GitHub-hosted runner:\n\n| Runner | OS/arch | Engine | Commit | Passed | Failed | Unsupported | Logs |\n|---|---|---|---|---|---|---|---|\n")
 		for _, rep := range reps {
 			env, _ := rep["environment"].(map[string]any)
 			sum, _ := rep["summary"].(map[string]any)
@@ -484,6 +495,21 @@ func matrixMarkdown(e2e map[string]any, leases ...string) string {
 }
 
 // agentsMarkdown describes the workload identities used by the tests.
+// s1Activation returns scenario S1's lease-to-ALLOW times for east and west.
+func s1Activation(e2e map[string]any) (east, west float64, ok bool) {
+	for _, sc := range asSlice(e2e["scenarios"]) {
+		m, _ := sc.(map[string]any)
+		if m["id"] != "S1" {
+			continue
+		}
+		metrics, _ := m["metrics"].(map[string]any)
+		east, eok := metrics["activationToAllowMsEast"].(float64)
+		west, wok := metrics["activationToAllowMsWest"].(float64)
+		return east, west, eok && wok
+	}
+	return 0, 0, false
+}
+
 func agentsMarkdown(e2e map[string]any) string {
 	var b strings.Builder
 	for _, a := range asSlice(e2e["agents"]) {

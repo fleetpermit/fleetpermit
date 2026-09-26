@@ -44,10 +44,8 @@ for i in $(seq 1 "$ITER"); do
   name="bench-${i}"
   t0=$(now_ms)
   create_lease "$name" 5m restart_workload
-  for c in cluster-east cluster-west; do
-    out="$(wait_decision sre-agent "$c" restart_workload ALLOW 60)" || die "activation timed out on $c"
-    sample activationToAllowMs $(( $(iso_ms "$(jq -r .timestamp <<<"$(cut -d' ' -f2- <<<"$out")")") - t0 ))
-  done
+  out="$(wait_decisions "$t0" sre-agent restart_workload 60 cluster-east=ALLOW cluster-west=ALLOW)" || die "activation timed out: $out"
+  while read -r _ ms _; do sample activationToAllowMs "$ms"; done <<<"$out"
   until [[ "$(lease_field "$name" '{.status.conditions[?(@.type=="Ready")].status}')" == True ]]; do
     (( $(now_ms) - t0 > 180000 )) && die "lease never reported Ready"
     sleep 0.2
@@ -67,10 +65,8 @@ for i in $(seq 1 "$ITER"); do
 
   t1=$(now_ms)
   hub -n "${FP_FLEET_NAMESPACE}" delete toolaccesslease "$name" --wait=false >/dev/null
-  for c in cluster-east cluster-west; do
-    out="$(wait_decision sre-agent "$c" restart_workload DENY 60)" || die "revocation timed out on $c"
-    sample revocationToDenyMs $(( $(iso_ms "$(jq -r .timestamp <<<"$(cut -d' ' -f2- <<<"$out")")") - t1 ))
-  done
+  out="$(wait_decisions "$t1" sre-agent restart_workload 60 cluster-east=DENY cluster-west=DENY)" || die "revocation timed out: $out"
+  while read -r _ ms _; do sample revocationToDenyMs "$ms"; done <<<"$out"
   printf '    iteration %d/%d done\n' "$i" "$ITER"
 done
 
@@ -96,7 +92,7 @@ jq -s --arg gen "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg k8s "$(kc cluster-east ve
       description: "local kind clusters (1 hub + 3 managed) on one development host; not a production benchmark",
       kubernetes: $k8s, openClusterManagement: $ocm, kubeAgenticNetworking: $kan, envoy: $envoy, os: $os, arch: $arch,
       ocmStatusSyncInterval: $sync,
-      method: "host-side real MCP calls via kubectl exec; each latency includes one probe round trip (see probeRoundTripMs)"
+      method: "host-side real MCP calls via kubectl exec; east and west are polled concurrently from the same start time; each latency includes one probe round trip (see probeRoundTripMs)"
     },
     samples: $s
   }' "$S" >"${FP_RESULTS_DIR}/benchmark.json"

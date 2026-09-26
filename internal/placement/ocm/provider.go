@@ -71,6 +71,7 @@ const (
 	reasonAwaitingAccept  = "AwaitingAcceptance"
 	reasonRejected        = "RejectedByEnforcement"
 	reasonClusterNotReady = "ClusterUnavailable"
+	reasonSuperseded      = "Superseded"
 )
 
 // Provider delivers FleetPermit content through Open Cluster Management.
@@ -175,7 +176,7 @@ func (o *Provider) Apply(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster
 				return fmt.Errorf("requesting re-apply of ManifestWork %s/%s: %w", cluster, desired.Name, err)
 			}
 		}
-		return nil
+		return o.pruneStale(ctx, p, cluster, desired.Name)
 	}
 	// A merge patch without an optimistic lock: FleetPermit owns the spec,
 	// labels and annotations, while the OCM work agent continuously writes
@@ -195,40 +196,60 @@ func (o *Provider) Apply(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster
 // whose name is not the current one (for example after a naming change), so
 // a cluster never holds two deliveries for one policy.
 func (o *Provider) pruneStale(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster, keep string) error {
+	return o.deleteOwned(ctx, p, cluster, keep)
+}
+
+// Remove deletes every ManifestWork the policy owns in the cluster namespace,
+// including deliveries under an earlier name. The OCM work agent then deletes
+// the delivered objects from the managed cluster.
+func (o *Provider) Remove(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster string) error {
+	return o.deleteOwned(ctx, p, cluster, "")
+}
+
+// deleteOwned deletes the ManifestWorks in the cluster namespace that carry
+// the policy's UID label, except the one named keep. Each delete is
+// conditional on the listed object's UID, so a ManifestWork that belongs to
+// another policy is never deleted, even if it reuses a name.
+func (o *Provider) deleteOwned(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster, keep string) error {
 	var works workv1.ManifestWorkList
 	if err := o.Client.List(ctx, &works, client.InNamespace(cluster), client.MatchingLabels{LabelPolicyUID: string(p.UID)}); err != nil {
 		return fmt.Errorf("listing ManifestWorks in %s: %w", cluster, err)
 	}
 	for i := range works.Items {
-		if w := &works.Items[i]; w.Name != keep && w.DeletionTimestamp.IsZero() {
-			if err := o.Client.Delete(ctx, w); err != nil && !apierrors.IsNotFound(err) {
-				return fmt.Errorf("deleting stale ManifestWork %s/%s: %w", cluster, w.Name, err)
-			}
+		w := &works.Items[i]
+		if w.Name == keep || !w.DeletionTimestamp.IsZero() {
+			continue
+		}
+		uid := w.UID
+		err := o.Client.Delete(ctx, w, client.Preconditions{UID: &uid})
+		if err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
+			return fmt.Errorf("deleting ManifestWork %s/%s: %w", cluster, w.Name, err)
 		}
 	}
 	return nil
 }
 
-// Remove deletes the policy's ManifestWork from the cluster namespace. The OCM
-// work agent then deletes the delivered objects from the managed cluster.
-func (o *Provider) Remove(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster string) error {
-	w := &workv1.ManifestWork{ObjectMeta: metav1.ObjectMeta{Namespace: cluster, Name: WorkName(p)}}
-	if err := o.Client.Delete(ctx, w); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting ManifestWork %s/%s: %w", cluster, w.Name, err)
-	}
-	return nil
-}
-
-// Observe reports the state of every ManifestWork that belongs to the policy.
+// Observe reports, per cluster, the state of the ManifestWork that belongs to
+// the policy. A cluster that only holds a delivery under an earlier name is
+// reported as not ready, so the controller replaces it on placed clusters and
+// removes it from all others.
 func (o *Provider) Observe(ctx context.Context, p *fpv1.FleetAccessPolicy) (map[string]placement.ClusterState, error) {
 	var works workv1.ManifestWorkList
 	if err := o.Client.List(ctx, &works, client.MatchingLabels{LabelPolicyUID: string(p.UID)}); err != nil {
 		return nil, fmt.Errorf("listing ManifestWorks: %w", err)
 	}
+	name := WorkName(p)
 	out := make(map[string]placement.ClusterState, len(works.Items))
 	for i := range works.Items {
 		w := &works.Items[i]
-		if !w.DeletionTimestamp.IsZero() || w.Name != WorkName(p) {
+		if !w.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if w.Name != name {
+			if _, seen := out[w.Namespace]; !seen {
+				out[w.Namespace] = placement.ClusterState{Cluster: w.Namespace, Reason: reasonSuperseded,
+					Message: "ManifestWork " + w.Name + " uses an earlier name and is being replaced"}
+			}
 			continue
 		}
 		st := WorkState(w)

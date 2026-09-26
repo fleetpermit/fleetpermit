@@ -17,6 +17,8 @@ limitations under the License.
 package ocm
 
 import (
+	"context"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,7 +27,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	workv1 "open-cluster-management.io/api/work/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	fpv1 "github.com/fleetpermit/fleetpermit/api/v1alpha1"
 	"github.com/fleetpermit/fleetpermit/internal/enforcement"
@@ -170,5 +176,88 @@ func TestResyncIsRateLimited(t *testing.T) {
 	w.Labels[LabelResync] = strconv.FormatInt(now.Add(-resyncBackoff).Unix(), 10)
 	if !o.resyncDue(w) {
 		t.Fatal("resync after the backoff must be allowed")
+	}
+}
+
+// ownedWork returns a ManifestWork in the cluster namespace labelled as
+// belonging to the policy UID.
+func ownedWork(cluster, name, ownerUID string) *workv1.ManifestWork {
+	return &workv1.ManifestWork{ObjectMeta: metav1.ObjectMeta{
+		Namespace: cluster, Name: name, UID: types.UID(cluster + "/" + name),
+		Labels: map[string]string{LabelManagedBy: ManagedByValue, LabelPolicyUID: ownerUID},
+	}}
+}
+
+func fakeProvider(t *testing.T, objs ...client.Object) (*Provider, client.Client) {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := workv1.Install(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := clusterv1.Install(scheme); err != nil {
+		t.Fatal(err)
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	return &Provider{Client: c}, c
+}
+
+func workNames(t *testing.T, c client.Client) []string {
+	t.Helper()
+	var list workv1.ManifestWorkList
+	if err := c.List(context.Background(), &list); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, w := range list.Items {
+		names = append(names, w.Namespace+"/"+w.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func TestRemoveDeletesOnlyThisPolicysWorksOnThatCluster(t *testing.T) {
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-a"}}
+	current := WorkName(p)
+	o, c := fakeProvider(t,
+		ownedWork("cluster-east", current, "policy-a"),
+		ownedWork("cluster-east", "fleetpermit-sre-0123abcd", "policy-a"), // earlier naming scheme
+		ownedWork("cluster-east", "fleetpermit-other-1111", "policy-b"),
+		ownedWork("cluster-west", current, "policy-b"), // same name, another policy
+		ownedWork("cluster-edge", current, "policy-a"),
+	)
+	if err := o.Remove(context.Background(), p, "cluster-east"); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Remove(context.Background(), p, "cluster-west"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"cluster-east/fleetpermit-other-1111", "cluster-edge/" + current, "cluster-west/" + current}
+	if got := workNames(t, c); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("remaining works:\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestObserveReportsDeliveriesUnderAnEarlierName(t *testing.T) {
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-a"}}
+	current := ownedWork("cluster-east", WorkName(p), "policy-a")
+	current.Annotations = map[string]string{AnnotationDigest: "sha256:new"}
+	o, _ := fakeProvider(t,
+		current,
+		ownedWork("cluster-east", "fleetpermit-sre-0123abcd", "policy-a"),
+		ownedWork("cluster-west", "fleetpermit-sre-0123abcd", "policy-a"),
+		ownedWork("cluster-edge", "fleetpermit-sre-0123abcd", "policy-b"),
+	)
+	got, err := o.Observe(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("observed %d clusters, want cluster-east and cluster-west: %+v", len(got), got)
+	}
+	if got["cluster-east"].Digest != "sha256:new" {
+		t.Fatalf("cluster-east must report the current work, got %+v", got["cluster-east"])
+	}
+	if w := got["cluster-west"]; w.Ready || w.Reason != reasonSuperseded {
+		t.Fatalf("cluster-west holds only an earlier-named work and must be reported superseded, got %+v", w)
 	}
 }

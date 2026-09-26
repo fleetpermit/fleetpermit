@@ -863,3 +863,112 @@ func TestForeignManifestWorkIsNotOverwritten(t *testing.T) {
 		t.Fatalf("the foreign ManifestWork was modified: %+v", after)
 	}
 }
+
+// TestEarlierNamedWorksAreRemoved covers deliveries under an earlier naming
+// scheme (object names grew from 8 to 16 hex characters after v0.1.0): they
+// are removed from clusters that are no longer placed and replaced on placed
+// ones, so no grant is left behind after an upgrade.
+func TestEarlierNamedWorksAreRemoved(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "earlier-names", []string{"en-east", "en-west"}, []string{"en-east"})
+	no := false
+	p := f.policy("sre-remediation", func(p *fpv1.FleetAccessPolicy) { p.Spec.Lease.Required = &no })
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "the current work on en-east", func() error {
+		if err := k8s.Get(ctx, clientKey(p), p); err != nil {
+			return err
+		}
+		if _, ok := works(t, p)["en-east"]; !ok {
+			return fmt.Errorf("no work yet")
+		}
+		return nil
+	})
+	var earlier []*workv1.ManifestWork
+	for _, c := range []string{"en-east", "en-west"} {
+		w := &workv1.ManifestWork{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: c, Name: "fleetpermit-sre-remediation-0123abcd",
+				Labels: map[string]string{ocm.LabelManagedBy: ocm.ManagedByValue, ocm.LabelPolicyUID: string(p.UID)},
+			},
+			Spec: workv1.ManifestWorkSpec{Workload: workv1.ManifestsTemplate{Manifests: []workv1.Manifest{{
+				RawExtension: runtime.RawExtension{Raw: []byte(`{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"standing-grant","namespace":"default"}}`)},
+			}}}},
+		}
+		if err := k8s.Create(ctx, w); err != nil {
+			t.Fatal(err)
+		}
+		earlier = append(earlier, w)
+	}
+	poke(t, p)
+	eventually(t, 10*time.Second, "earlier-named works to be removed", func() error {
+		ackWorks(t)
+		for _, w := range earlier {
+			if err := k8s.Get(ctx, clientKey(w), &workv1.ManifestWork{}); !apierrors.IsNotFound(err) {
+				return fmt.Errorf("%s/%s still present (%v)", w.Namespace, w.Name, err)
+			}
+		}
+		return nil
+	})
+	if got := clusterSet(works(t, p)); got != "en-east" {
+		t.Fatalf("only the current work on en-east must remain, got %q", got)
+	}
+}
+
+// TestLeaseDroppedOnEveryClusterIsPending checks that a lease which does not
+// fit the enforcement layer's rule limit on any cluster is reported Pending
+// and Degraded/CapacityExceeded, not Active, and activates once capacity frees.
+func TestLeaseDroppedOnEveryClusterIsPending(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "capacity", []string{"ca-east"}, []string{"ca-east"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	// One subject: one session rule plus nine grant rules fill the upstream
+	// limit of ten rules, so the tenth lease (created last) does not fit.
+	var leases []*fpv1.ToolAccessLease
+	for i := 1; i <= 10; i++ {
+		d := 10 * time.Minute
+		if i == 1 {
+			d = time.Minute
+		}
+		l := f.lease(fmt.Sprintf("l%02d", i), p.Name, d, "restart_workload")
+		if err := k8s.Create(ctx, l); err != nil {
+			t.Fatal(err)
+		}
+		leases = append(leases, l)
+	}
+	for _, l := range leases[:9] {
+		waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	}
+	last := waitLeasePhase(t, leases[9], fpv1.LeasePending, fpv1.ReasonCapacityExceeded)
+	if last.Status.ClusterCount != 0 {
+		t.Fatalf("a lease rendered nowhere must list no clusters, got %v", last.Status.Clusters)
+	}
+	eventually(t, 10*time.Second, "the policy to count nine active leases", func() error {
+		var got fpv1.FleetAccessPolicy
+		if err := k8s.Get(ctx, clientKey(p), &got); err != nil {
+			return err
+		}
+		if got.Status.ActiveLeases != 9 {
+			return fmt.Errorf("activeLeases %d", got.Status.ActiveLeases)
+		}
+		return nil
+	})
+
+	first := getLease(t, leases[0])
+	clock.Set(first.CreationTimestamp.Add(time.Minute + time.Second))
+	poke(t, leases[0])
+	waitLeasePhase(t, leases[0], fpv1.LeaseExpired, fpv1.ReasonLeaseExpired)
+	waitLeasePhase(t, leases[9], fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+}
