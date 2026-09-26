@@ -6,9 +6,11 @@ Every layer runs from a clean clone with `make`. CI calls the same targets.
 |---|---|---|---|
 | Static checks | `make verify` | Go, Helm, Python 3 | gofmt, `go vet`, generated code up to date, YAML parses (when PyYAML is installed; otherwise only a tab check), Helm lint and render, shell syntax, secret and personal-data scan, license headers |
 | Unit | `make test-unit` | Go | lease evaluation (subset, duration, subject, placement narrowing, expiry boundary, determinism), digest determinism and known-answer vector, renderer output and CEL-injection rejection, capacity ordering, OCM work-state and drift logic, metric names and cardinality. Race detector on. |
-| Integration | `make test-integration` | Go (envtest downloads kube-apiserver and etcd) | the real API server enforces the CRD schema and CEL rules (Scenario 14); every rendered shape is accepted by the pinned upstream `XAccessPolicy` CRD; the reconciler against real OCM CRDs with a simulated work agent: lease lifecycle, escalations, placement moves and deletion, ManifestWork tampering and deletion, drift re-apply request, concurrent leases, capacity, restart without disturbance, policy deletion, standing grants, removal of deliveries under an earlier name |
+| Integration | `make test-integration` | Go (envtest downloads kube-apiserver and etcd) | the real API server enforces the CRD schema and CEL rules (the envtest counterpart of S14); every rendered shape is accepted by the pinned upstream `XAccessPolicy` CRD; the reconciler against real OCM CRDs with a simulated work agent: lease lifecycle, escalations, placement moves and deletion, ManifestWork tampering and deletion, drift re-apply request, concurrent leases, capacity, restart without disturbance, policy deletion, standing grants, removal of deliveries under an earlier name |
 | End to end | `make demo-up && make test-e2e` | podman (or docker), kind, kubectl, clusteradm, helm, jq, Go, Python 3, curl | the scenarios in [results.md](results.md) on 1 hub + 3 managed clusters, using real SPIFFE mTLS and real MCP calls through Envoy |
 | Benchmark | `make benchmark` | as above | simulated controller scale (10–100 logical clusters, envtest) and repeated real-cluster latencies |
+| Fuzzing | `make fuzz` | Go | the renderer never emits unsafe CEL (`FuzzRenderNeverEmitsUnsafeCEL`) and lease evaluation never widens authority (`FuzzEvaluateNeverWidens`); `FUZZTIME` per target, 30 s by default. Run on demand, not in CI |
+| Upstream canary | `make upstream-canary` | Go, curl, jq | reports pinned versus latest upstream releases and runs the integration suite against the latest upstream `XAccessPolicy` CRD; weekly in CI ([details](upstream-compatibility.md#keeping-up-with-upstream)) |
 | Results | `make results` | Go | merges everything into `test-results/results.json`, `docs/results.md`, the README block and the website data |
 
 ## End-to-end scenarios
@@ -23,13 +25,13 @@ Every layer runs from a clean clone with `make`. CI calls the same targets.
 | S6 | cluster outside the placement | DENY, nothing rendered |
 | S7 | placement change (relabel clusters) | authorization moves |
 | S8 | lease asks for an unpermitted tool | lease Denied |
-| S9 | lease asks for 1h, policy max 10m | lease Denied |
+| S9 | lease asks for `1h`, policy maximum `10m` | lease Denied |
 | S10 | rendered policy deleted on a managed cluster | restored; the anchor denies meanwhile. Records `driftRecoveryToAllowMs`: rendered policy deleted → calls allowed again (the benchmark's `driftRecoveryMs` measures deleted → object restored) |
 | S11 | hub paused before expiry | DENY at expiry on east and west, hub unreachable |
 | S12 | hub resumed | lease Expired, stale grants withdrawn |
 | S13 | two leases, different tools and durations | independent expiry |
 | S14 | malformed policy | rejected at admission |
-| S15 | FleetPermit and agentic-networking controllers restarted | no change in decisions; new leases still work |
+| S15 | FleetPermit and kube-agentic-networking controllers restarted | no change in decisions; new leases still work |
 | S16 | allowed tool, prohibited argument | recorded as unsupported by upstream v0.2.0 |
 | MATRIX | `sre-agent` and `security-agent` × 3 clusters × 4 tools, lease active and then expired (48 real calls) | ALLOW only for `sre-agent` on east/west for the two leased tools while the lease is active; every other call DENY |
 | R1 | lease deleted | DENY everywhere |
@@ -37,9 +39,10 @@ Every layer runs from a clean clone with `make`. CI calls the same targets.
 | RBAC | controller ServiceAccount | cannot create pods, read secrets, create cluster role bindings, delete namespaces or update leases; can create ManifestWork and list PlacementDecisions |
 | METRICS | metrics endpoint | every `fleetpermit_*` metric present |
 
-Run a subset with `test/e2e/run.sh S1 S5 S11`. Some scenarios depend on earlier ones: R1 deletes the
-lease that S1 creates, and S10 and S15 use the grant that S7 leaves on cluster-west. Run the full
-suite, or run those groups together (`S1 R1`, `S7 S10 S15`). The probe responses that decided each
+Run a subset with `test/e2e/run.sh S1 S5 S11`. Some scenarios depend on others. R1 deletes the lease
+that S1 creates, and S2, S3 and S6 are only meaningful while that lease is active. S10 (on
+cluster-west) and S15 (on cluster-east) use the lease that S7 leaves in place. Run the full suite, or
+run those groups together (`S1 S6 S2 S3 R1`, `S7 S10 S15`). The probe responses that decided each
 scenario, including the test agent that made each call, are kept as evidence in
 `test-results/e2e-results.json`.
 

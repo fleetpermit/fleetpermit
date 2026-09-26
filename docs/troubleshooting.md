@@ -15,6 +15,7 @@ kubectl get fap <policy> -n <ns> -o jsonpath='{range .status.clusters[*]}{.name}
 | Lease `Pending` with `CapacityExceeded` | the upstream rule limit is reached on every requested cluster | the lease activates by itself when another lease expires or is deleted; otherwise reduce concurrent leases or split the policy |
 | Policy `Degraded/PlacementNotFound` | the placement is missing or in another namespace | placements must be in the policy's namespace, which needs a `ManagedClusterSetBinding` |
 | Cluster reason `Applying` for a long time | the work agent has not applied the current generation | `kubectl get manifestwork -n <cluster> -l app.kubernetes.io/managed-by=fleetpermit -o yaml`; work agent logs on the cluster |
+| Cluster reason `DeliveryFailed` | the controller could not render or deliver the ManifestWork: a rendering error, the hub rejected the ManifestWork (for example OCM's webhook, or a missing `execute-as` permission when `workExecutor` is set), or another policy owns a ManifestWork with the same name | the cluster's message in `kubectl get fap <policy> -n <ns> -o yaml`; the controller log (`kubectl -n fleetpermit-system logs deploy/fleetpermit-controller`) |
 | Cluster reason `ApplyFailed` | the XAccessPolicy CRD is missing, or the work agent lacks RBAC | install kube-agentic-networking CRDs; apply `config/managed-cluster/work-agent-rbac.yaml` |
 | Cluster reason `AwaitingAcceptance` | the enforcement controller has not written `Accepted` yet, or OCM has not synced status feedback | `kubectl get xaccesspolicy -n <target-ns> -o yaml` on the cluster; the klusterlet `statusSyncInterval` |
 | Cluster reason `RejectedByEnforcement` | upstream rejected the policy (for example a per-target limit or invalid CEL) | the XAccessPolicy's `status.ancestors[].conditions`; the upstream per-target limit is 5 policies |
@@ -30,7 +31,7 @@ kubectl get fap <policy> -n <ns> -o jsonpath='{range .status.clusters[*]}{.name}
 | Symptom | Fix |
 |---|---|
 | `Cannot connect to Podman` | `podman machine start`. The lab needs about 8 CPUs and 16 GiB (`podman machine set --cpus 8 --memory 16384` while the machine is stopped). |
-| Image pulls rate-limited | pre-pull with podman and re-run `demo/scripts/lab-up.sh`; the scripts are idempotent |
+| Image pulls rate-limited | kind nodes pull with their own containerd, so an image in podman's store does not help by itself. Pull it with podman, save it and load it into the node: `podman pull <image>`, `podman save -o image.tar <image>`, `KIND_EXPERIMENTAL_PROVIDER=podman kind load image-archive image.tar --name fleetpermit-<cluster>` (for example `fleetpermit-cluster-east`). Then re-run `demo/scripts/lab-up.sh`; the scripts are idempotent |
 | `clusteradm join` hangs | the hub API must be reachable from the managed-cluster nodes; the lab uses the kind network with `--force-internal-endpoint-lookup` |
 | No Gateway address | MetalLB is not ready yet: `kubectl -n metallb-system get pods` |
 | Want a clean slate | `make demo-down && make demo-up` (only lab-created clusters are deleted) |

@@ -2,9 +2,10 @@
 
 Terminal recordings of real runs of [`demo/run.sh`](../run.sh) against the lab, captured with
 `make demo-videos` ([`hack/record-demos.sh`](../../hack/record-demos.sh)). That target writes the
-casts, MP4 videos and poster images to `dist/video/` (set `FP_VIDEO_OUT` to change it) and refreshes
-the README GIFs in `docs/assets/`. The `.cast` files in this directory are copied from `dist/video/`
-after recording, and the MP4 videos are published on the website.
+casts, MP4 videos and poster images to `dist/video/` (set `FP_VIDEO_OUT` to change it), refreshes the
+README GIFs in `docs/assets/`, and copies the `.cast` files into this directory. When
+`../fleetpermit.github.io` is a checkout of the website, it also copies the MP4 videos and poster
+images there.
 
 The `$ command` lines in a recording are simplified for readability. They show the equivalent
 `kubectl` or container command (for example `kubectl create -f incident-42.yaml`), while the script
@@ -18,5 +19,6 @@ one MCP call through a real gateway.
 | `demo-security.cast` | permission and duration escalation denied, immutable leases, malformed policy rejected, a deleted grant restored from the hub |
 | `demo-disconnected-expiry.cast` | the hub is paused, the lease still expires on every cluster, then the fleet converges on reconnect |
 
-Play one locally with `asciinema play demo/recordings/demo-overview.cast`. MP4 versions are on the
+Play one locally with `asciinema play demo/recordings/demo-overview.cast`. The casts use the
+asciicast v3 format, so they need asciinema 3.0 or later. MP4 versions are on the
 [website](https://fleetpermit.github.io/demo.html).

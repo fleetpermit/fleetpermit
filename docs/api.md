@@ -87,7 +87,7 @@ Status:
 |---|---|
 | `phase` | `Pending`: no requested cluster is placed yet, or the enforcement rule limit is reached on every cluster. `Active`: rendered on at least one cluster. `Expired`, `Denied`: terminal. A summary of the conditions |
 | `expiresAt` | `creationTimestamp` + effective duration. For a lease without `spec.duration`, that is the policy default in effect at first evaluation, pinned here. Policy changes never extend it |
-| `clusters`, `clusterCount` | clusters that hold the grant; after expiry or denial, clusters still being revoked |
+| `clusters`, `clusterCount` | clusters the grant is rendered for; delivery may still be in progress until the lease is `Ready`. After expiry or denial, the clusters the grant is still being withdrawn from |
 | `conditions` | `Ready`, `Progressing`, `Degraded`, `Expired`, `Denied` |
 
 ```console
@@ -99,7 +99,7 @@ $ kubectl get tal -n fleet -o wide      # adds the SUBJECT column
 
 ### Condition reasons
 
-Reasons on `ToolAccessLease` conditions. The row marked "policy" is a `FleetAccessPolicy` reason.
+Reasons on `ToolAccessLease` conditions. Rows marked "policy" are `FleetAccessPolicy` reasons.
 
 | Reason | Condition | Meaning |
 |---|---|---|
@@ -107,7 +107,7 @@ Reasons on `ToolAccessLease` conditions. The row marked "policy" is a `FleetAcce
 | `RollingOut` | Ready=False, Progressing=True | delivery or acceptance pending on some clusters |
 | `NoEligibleClusters` | Ready=False (phase Pending) | none of the requested clusters is currently placed |
 | `CapacityExceeded` | Degraded=True | the upstream rule limit is reached on the listed clusters. If that is every cluster, the lease is in phase `Pending` (Ready=False with the same reason), is not counted as active, and activates when capacity frees up |
-| `ClustersFailed` | Degraded=True | apply failed, rejected by enforcement, or cluster unavailable |
+| `ClustersFailed` | Degraded=True (policy: also Ready=False) | at least one cluster is `DeliveryFailed` (rendering failed, the hub rejected the ManifestWork, or another policy owns a ManifestWork with the same name), `ApplyFailed` (the work agent could not apply it), `RejectedByEnforcement` or `ClusterUnavailable`; the message lists the clusters |
 | `PolicyNotFound` | Denied=True | the referenced policy does not exist |
 | `SubjectNotAllowed` | Denied=True | the subject is not in the policy |
 | `PermissionNotAllowed` | Denied=True | a requested tool is not in the policy (the message lists them) |
@@ -115,6 +115,7 @@ Reasons on `ToolAccessLease` conditions. The row marked "policy" is a `FleetAcce
 | `LeaseExpired` | Expired=True | past `expiresAt` |
 | `Revoking` | Progressing=True | grants of an expired or denied lease are still being withdrawn from the listed clusters. Also used as a per-cluster reason in the policy status |
 | `NoClustersSelected` | policy: Ready=True | the placement selects no clusters, so nothing is granted |
+| `PlacementNotFound` | policy: Ready=False, Degraded=True | the referenced Placement does not exist; every grant is withdrawn and the policy's leases wait in `Pending` (`NoEligibleClusters`) |
 
 `Denied` and `Expired` are terminal, provided only the controller can write
 `toolaccessleases/status`. A policy change that removes a lease's tool or subject denies it.

@@ -124,9 +124,10 @@ subject, expiry or target changes it.
 reason and the desired content digest.
 
 `ToolAccessLease.status`: `Ready`, `Progressing`, `Degraded`, `Expired` and `Denied` conditions; a
-`phase` summary (`Pending`, `Active`, `Expired`, `Denied`); `expiresAt`; and the clusters that
-currently hold its grant. After expiry or denial, `clusters` lists only clusters still being revoked
-and becomes empty when revocation is complete.
+`phase` summary (`Pending`, `Active`, `Expired`, `Denied`); `expiresAt`; and `clusters`, the clusters
+the grant is rendered for. Delivery to those clusters may still be in progress until the lease is
+`Ready`. After expiry or denial, `clusters` lists the clusters the grant is still being withdrawn from,
+and it becomes empty when withdrawal is complete.
 
 ## Failure behaviour
 
@@ -135,7 +136,8 @@ and becomes empty when revocation is complete.
 | fleetpermit-controller | Existing grants keep working until their expiry, which Envoy enforces. New leases are not activated. | Restart; state is recomputed from the API. A restart neither withdraws nor re-creates grants (S15). |
 | OCM hub (whole hub cluster) | Same as above. Managed clusters keep enforcing their last delivered grants and expire them on time (S11). | On reconnect, the controller withdraws expired grants (S12 records how long it took). |
 | OCM work agent on a cluster | Delivered grants stay enforced and expire on time. Changes (new leases, early revocation) are not applied on that cluster. A cluster with a pending change shows as not ready (`Applying`); FleetPermit reports `ClusterUnavailable` only once OCM marks the ManagedCluster unavailable. | A work agent restart re-syncs. |
-| Envoy gateway / agentic-networking controller | No path to the tool server; calls fail. A controller restart leaves Envoy's last configuration in place (S15). | Standard Deployment recovery. |
+| Envoy gateway | No path to the tool server; calls fail. | Standard Deployment recovery. |
+| kube-agentic-networking controller | Envoy keeps its last configuration, so decisions do not change and grants still expire on time (S15 restarts it). New grants and early revocations are not programmed into Envoy until the controller returns. | Standard Deployment recovery. |
 | Identity issuance (Pod Certificates signer) | Callers without a valid certificate cannot complete mTLS and are rejected. | Signer recovery; certificates rotate automatically. |
 | The policy's `Placement` (deleted) | Every grant for the policy is withdrawn, and the policy reports `Degraded/PlacementNotFound`. Its leases go to phase `Pending` (`NoEligibleClusters`); they are not denied. | Recreate the placement. Leases that have not expired are delivered again. |
 | The `FleetAccessPolicy` (deleted) | The finalizer withdraws every grant, and every lease of the policy that has not expired becomes `Denied/PolicyNotFound`, which is terminal. Expired leases stay `Expired`. | Recreate the policy and create new leases. |

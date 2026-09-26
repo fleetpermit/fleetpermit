@@ -16,14 +16,15 @@ FleetPermit welcomes issues, reviews, documentation and code.
 ## Development setup
 
 You need Go (see `go.mod`), Helm and Python 3. For the lab you also need podman (or docker), kind,
-kubectl, clusteradm and jq.
+kubectl, clusteradm, jq and curl.
 
 ```sh
 make help               # all targets
 make verify             # everything CI checks statically
 make test               # unit + integration (envtest downloads kube-apiserver and etcd)
 make demo-up test-e2e   # the multi-cluster lab and end-to-end scenarios
-make results            # regenerate test-results/results.json, docs/results.md and the README block
+make results            # regenerate test-results/results.json, docs/results.md and the README block;
+                        # also the website data when ../fleetpermit.github.io is a checkout
 ```
 
 After changing anything in `api/` or an RBAC marker, run `make generate` and commit the result.

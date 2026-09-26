@@ -37,5 +37,5 @@ clear:
 - Build provenance attestations for images and release assets. An enhancement listed in the
   [roadmap](../ROADMAP.md).
 - DCO sign-off enforcement. To be adopted with the first external contributions.
-- API stability. APIs are `v1alpha1`, and the upstream Agentic Networking APIs they build on are
+- API stability. APIs are `v1alpha1`, and the upstream kube-agentic-networking APIs they build on are
   experimental.

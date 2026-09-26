@@ -150,7 +150,9 @@ version can move to it.
 - `Denied` and `Expired` are terminal, provided only the controller can write
   `toolaccessleases/status`: the controller reads the recorded conditions back to keep them sticky. A
   lease denied for asking for `read_secret` does not become active later if someone adds
-  `read_secret` to the policy. A policy that narrows denies the leases it no longer covers at once.
+  `read_secret` to the policy. Removing a tool or a subject from a policy, or lowering its
+  `maxDuration`, denies the leases that no longer fit at once. Narrowing the placement does not deny
+  anything; it only withdraws grants from the clusters that left.
   Deleting a policy denies its leases that have not expired; expired leases stay `Expired`
   (v0.1.1, `TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted`).
 - A lease without `clusters` follows the placement as it changes, within its expiry. A lease with

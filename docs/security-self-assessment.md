@@ -19,7 +19,7 @@ has not been reviewed by TAG Security or audited by a third party.
 FleetPermit gives workload identities (for example AI agents) time-bound permission to call specific
 MCP tools on specific clusters of a Kubernetes fleet. A `FleetAccessPolicy` defines the maximum
 authority. A `ToolAccessLease` activates a subset of it for a bounded time. The controller runs on an
-Open Cluster Management hub, renders one Kubernetes Agentic Networking `XAccessPolicy` per policy and
+Open Cluster Management hub, renders one kube-agentic-networking `XAccessPolicy` per policy and
 selected cluster, and delivers it with `ManifestWork`. Each cluster's Envoy gateway enforces identity,
 tool and expiry on every request.
 
@@ -30,7 +30,7 @@ tool and expiry on every request.
 | Hub API server and etcd | trusted | Kubernetes control plane |
 | Policy authors (`fleetaccesspolicies` write) | trusted to define ceilings | Kubernetes RBAC |
 | Lease requesters (`toolaccessleases` create) | trusted only within a ceiling | Kubernetes RBAC; the API rejects edits after creation |
-| fleetpermit-controller | trusted; can create and update ManifestWork in every managed-cluster namespace | ServiceAccount with generated RBAC: no Secrets, workloads or RBAC on the hub; optional `--work-executor` restricts what the work agent applies on its behalf |
+| fleetpermit-controller | trusted; can read every ManifestWork on the hub (which can include other tools' Secrets) and create and update ManifestWork in every managed-cluster namespace | ServiceAccount with generated RBAC: no access to the Secret, workload or RBAC APIs; optional `--work-executor` makes the work agent check FleetPermit's content against a restricted ServiceAccount before applying it, but a stolen credential can omit it unless the hub enables OCM's `NilExecutorValidating` gate |
 | OCM work agent (managed cluster) | trusted to apply delivered content | OCM RBAC; FleetPermit's `work-agent-rbac.yaml` adds `xaccesspolicies` permissions to it |
 | kube-agentic-networking controller and Envoy gateway | trusted enforcement point | upstream project |
 | Agent workloads (callers) | untrusted | mTLS with SPIFFE X.509 identities; authorized per call |
@@ -83,7 +83,7 @@ audit.
 
 | Security relevant | Function |
 |---|---|
-| RBAC | generated from code markers; no access to Secrets, workloads or RBAC on the hub. ManifestWork write access in every managed-cluster namespace is the controller's most powerful permission |
+| RBAC | generated from code markers; no access to the Secret, workload or RBAC APIs on the hub. Cluster-wide ManifestWork access (read every ManifestWork, write in every managed-cluster namespace) is the controller's most powerful permission |
 | Drift handling | OCM server-side apply with force, plus immediate re-apply requests when OCM reports drift |
 | Observability | Prometheus metrics without identity labels; optional OpenTelemetry traces |
 

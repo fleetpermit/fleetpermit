@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-labelledby="sec-t sec-d">
   <title id="sec-t">FleetPermit security model</title>
-  <desc id="sec-d">Two trust zones separated by the Open Cluster Management delivery channel. In the hub cluster, admission validation rejects malformed policies and failMode accepts only Closed (F1); the fleetpermit-controller has no access to Secrets, workloads or RBAC but can write ManifestWork for every managed cluster, withdraws grants on render errors or a missing Placement (F2), and treats Denied and Expired leases as terminal (F3). ManifestWork carries rendered XAccessPolicy objects to the managed cluster, where work-agent-rbac.yaml adds XAccessPolicy permissions to the OCM work agent. On the managed cluster, Kubernetes Pod Certificates issue the agent's SPIFFE X.509 identity; the Envoy gateway verifies that identity over mTLS and evaluates tool name and request time, so expiry holds even with the hub unreachable (F4); a default-deny anchor, when installed, closes a backend without a grant (F5); a wrong identity, an unlisted tool or an unselected cluster is denied (F6).</desc>
+  <desc id="sec-d">Two trust zones separated by the Open Cluster Management delivery channel. In the hub cluster, admission validation rejects malformed policies and failMode accepts only Closed (F1); the fleetpermit-controller has no access to the Secret, workload or RBAC APIs but can read and write ManifestWork for every managed cluster, withdraws grants on render errors or a missing Placement (F2), and treats Denied and Expired leases as terminal while only the controller writes lease status (F3). ManifestWork carries rendered XAccessPolicy objects to the managed cluster, where work-agent-rbac.yaml adds XAccessPolicy permissions to the OCM work agent. On the managed cluster, Kubernetes Pod Certificates issue the agent's SPIFFE X.509 identity; the Envoy gateway verifies that identity over mTLS and evaluates tool name and request time, so expiry holds even with the hub unreachable (F4); a default-deny anchor, when installed, closes a backend without a grant (F5); a wrong identity, an unlisted tool or an unselected cluster is denied (F6).</desc>
   <defs>
     <style>
       svg { fill: #E6EDF6; }
@@ -40,9 +40,9 @@
 
   <rect class="box" x="60" y="250" width="360" height="118" rx="10" stroke="#2DD4BF"/>
   <text class="h3 mono allow" x="78" y="278">fleetpermit-controller</text>
-  <text class="sm" x="78" y="304">No access to Secrets, workloads or RBAC.</text>
-  <text class="sm" x="78" y="323">Can write ManifestWork for every managed</text>
-  <text class="sm" x="78" y="342">cluster: protect its credential</text>
+  <text class="sm" x="78" y="304">No access to Secret, workload or RBAC APIs.</text>
+  <text class="sm" x="78" y="323">Reads and writes ManifestWork for every</text>
+  <text class="sm" x="78" y="342">managed cluster: protect its credential</text>
   <g class="fc" transform="translate(362 272)"><circle r="14"/><text y="4">F2</text></g>
   <g class="fc" transform="translate(396 272)"><circle r="14"/><text y="4">F3</text></g>
 
@@ -57,7 +57,8 @@
     <text class="xs" x="36" y="47">A render error or missing Placement</text>
     <text class="xs" x="36" y="63">withdraws grants</text>
     <g class="fc" transform="translate(14 96)"><circle r="12"/><text y="4">F3</text></g>
-    <text class="xs" x="36" y="101">Denied and Expired leases are terminal</text>
+    <text class="xs" x="36" y="101">Denied and Expired leases are terminal while</text>
+    <text class="xs" x="36" y="117">only the controller writes lease status</text>
   </g>
 
   <!-- Boundary -->

@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [v0.1.1] - 2026-09-26
 
+### Added
+
+- Helm chart: when `workExecutor` is set, the chart grants the controller OCM's `execute-as`
+  permission for that one ServiceAccount, which OCM requires before it admits such a ManifestWork.
+- `make images` removes the Dockerfile's leftover builder-stage images after building, so repeated
+  lab builds with podman do not fill the container engine's disk.
+- Decision-matrix end-to-end scenario: 2 test agents × 3 clusters × 4 tools, with the lease active and
+  then expired (48 real calls, expected and observed).
+- README recordings of real demo runs, the "five answers" overview, and a reproduction of the
+  end-to-end scenarios on a GitHub-hosted runner (Linux amd64).
+- Keyless Sigstore cosign signing of release images and assets in the release workflow, and a manual
+  `sign-release` workflow, which signed the v0.1.0 images and assets after publication.
+- OpenSSF Scorecard, CodeQL, fuzz tests, Dependabot updates, a security self-assessment and a
+  project maturity page.
+- Helm chart: validates `workExecutor` (it must be `namespace/name`) and refuses more than one replica
+  without leader election, and prints installation notes (`NOTES.txt`) with the managed-cluster steps
+  and the CRD upgrade step.
+
 ### Changed
 
 - Upgrade note: ManifestWork and XAccessPolicy names now end in 16 hex characters of a SHA-256 hash of
@@ -15,6 +33,13 @@ All notable changes to this project are documented here. The format follows
 - End-to-end scenario S10 now records its own metric, `driftRecoveryToAllowMs` (rendered policy
   deleted → calls allowed again), separate from the benchmark's `driftRecoveryMs` (rendered policy
   deleted → object restored).
+- Helm chart: cluster-scoped objects (ClusterRoles and bindings) carry the release name unless the
+  release is called `fleetpermit`, so several releases can share a hub.
+- The narrated demo's default lease is 40 s instead of 45 s.
+- `make demo-videos` copies the casts into `demo/recordings/` and, when `../fleetpermit.github.io` is
+  a checkout of the website, copies the MP4 videos and poster images there too.
+- The release workflow waits for the GitHub release to exist before it pushes images, instead of
+  failing only at the final upload.
 
 ### Fixed
 
@@ -47,28 +72,14 @@ All notable changes to this project are documented here. The format follows
 - `fleetpermit_lease_revocation_seconds` was never recorded. It is now observed when the last cluster
   withdraws an expired or denied lease's grant.
 - `fleetpermit_policy_propagation_seconds` was observed again, with the lease's full age, whenever a
-  lease went back to Ready. It is now observed once per lease.
+  lease went back to Ready. It is now observed once per lease per controller process.
 - The controller's role no longer has `update` or `patch` on `toolaccessleases`, `update` on
   `manifestworks` or on the status subresources, or `patch` on `fleetaccesspolicies`, which it did
   not need.
 - The YAML check now also covers `.yaml` workflow files and the demo manifests.
 - The inert policy is now validated against the upstream `XAccessPolicy` schema in the integration
   tests, like every other rendered shape.
-
-### Added
-
-- Helm chart: when `workExecutor` is set, the chart grants the controller OCM's `execute-as`
-  permission for that one ServiceAccount, which OCM requires before it admits such a ManifestWork.
-- `make images` removes the Dockerfile's leftover builder-stage images after building, so repeated
-  lab builds with podman do not fill the container engine's disk.
-- Decision-matrix end-to-end scenario: 2 test agents × 3 clusters × 4 tools, with the lease active and
-  then expired (48 real calls, expected and observed).
-- README recordings of real demo runs, the "five answers" overview, and a reproduction of the
-  end-to-end scenarios on a GitHub-hosted runner (Linux amd64).
-- Keyless Sigstore cosign signing of release images and assets in the release workflow, and a manual
-  `sign-release` workflow, which signed the v0.1.0 images and assets after publication.
-- OpenSSF Scorecard, CodeQL, fuzz tests, Dependabot updates, a security self-assessment and a
-  project maturity page.
+- `make demo-down` passes the lab's kubeconfig to kind, so it never touches the default kubeconfig.
 
 ## [v0.1.0] - 2026-09-26
 
@@ -90,3 +101,6 @@ First pre-release.
 - Reproducible lab (1 OCM hub and 3 managed kind clusters, podman or docker), a narrated demo, 20
   end-to-end scenarios, a real-cluster benchmark, a controller scale simulation, and upstream
   conformance and canary tooling.
+
+[v0.1.1]: https://github.com/fleetpermit/fleetpermit/compare/v0.1.0...v0.1.1
+[v0.1.0]: https://github.com/fleetpermit/fleetpermit/releases/tag/v0.1.0

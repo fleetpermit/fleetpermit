@@ -45,11 +45,13 @@ Grant `create` on `toolaccessleases`. Do not grant `update` (the spec is immutab
 `status.expiresAt`, and a principal that can write it could extend that lease up to the policy's
 `maxDuration`.
 
-The controller itself is a privileged identity on the hub. It has no access to Secrets, workloads or
-RBAC, but it can create and update `ManifestWork` in every managed-cluster namespace, and the OCM work
-agent applies that content on the managed cluster. The `--work-executor` flag makes the work agent
-apply FleetPermit's content as a restricted managed-cluster ServiceAccount (not exercised by the lab
-tests); see [RBAC](operations.md#rbac).
+The controller itself is a privileged identity on the hub. It has no access to the Secret, workload
+or RBAC APIs, but its `ManifestWork` permissions cover every managed-cluster namespace: it can read
+content other tools deliver through `ManifestWork` (which can include Secrets), and it can create and
+update `ManifestWork` that the OCM work agent applies on the managed cluster. The `--work-executor`
+flag makes the work agent check FleetPermit's content against a restricted managed-cluster
+ServiceAccount before applying it (not exercised by the lab tests). It does not stop a stolen
+controller credential on its own; see [RBAC](operations.md#rbac).
 
 ## Identity
 

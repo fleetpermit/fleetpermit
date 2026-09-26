@@ -9,9 +9,14 @@
 
 ## Install
 
+Install from a release: check out the release tag (`git checkout v0.1.1`) and use `charts/fleetpermit`,
+or download the signed chart attached to the release and verify it first
+([verifying releases](#verifying-releases)).
+
 ```sh
 # hub
 helm install fleetpermit charts/fleetpermit -n fleetpermit-system --create-namespace
+kubectl -n fleetpermit-system rollout status deploy/fleetpermit-controller
 
 # every managed cluster that hosts a governed tool server
 kubectl apply -f config/managed-cluster/work-agent-rbac.yaml
@@ -22,6 +27,10 @@ The anchor must exist on every cluster that runs the backend, including clusters
 currently selects. Without it, upstream enforces nothing on that backend
 ([ADR-3](design.md#adr-3-default-deny-anchor)).
 
+A policy references an OCM `Placement` in its own namespace. OCM lets that Placement select clusters
+only when a `ManagedClusterSetBinding` binds a cluster set to the namespace.
+[`config/samples`](../config/samples) has a Placement, a policy and a lease to start from.
+
 ### Helm values
 
 | Value | Default | Purpose |
@@ -31,7 +40,7 @@ currently selects. Without it, upstream enforces nothing on that backend
 | `replicas` | `1` | more replicas are safe with leader election |
 | `leaderElection.enabled` | `true` | |
 | `watchNamespace` | `""` | restrict FleetPermit objects, placements and decisions to one namespace |
-| `workExecutor` | `""` | `namespace/name` of a managed-cluster ServiceAccount that the OCM work agent applies content as; see [RBAC](#rbac) |
+| `workExecutor` | `""` | `namespace/name` of a managed-cluster ServiceAccount that the OCM work agent checks FleetPermit's content against before applying it; see [RBAC](#rbac) |
 | `logLevel` | `info` | controller log level, passed as `--zap-log-level` |
 | `metrics.enabled` / `metrics.port` / `metrics.scrapeAnnotations` | `true` / `8080` / `true` | Prometheus endpoint and `prometheus.io/*` annotations |
 | `tracing.otlpEndpoint` | `""` | enables OpenTelemetry trace export over OTLP/HTTP |
@@ -43,7 +52,7 @@ currently selects. Without it, upstream enforces nothing on that backend
 
 ```sh
 make images IMAGE_REGISTRY=registry.example.com/platform IMAGE_TAG=v0.1.1
-podman push registry.example.com/platform/fleetpermit-controller:v0.1.1
+podman push registry.example.com/platform/fleetpermit-controller:v0.1.1   # or docker push
 helm install fleetpermit charts/fleetpermit -n fleetpermit-system --create-namespace \
   --set image.registry=registry.example.com --set image.repository=platform/fleetpermit-controller --set image.tag=v0.1.1
 ```
@@ -75,6 +84,15 @@ cosign verify-blob fleetpermit-0.1.1.tgz --bundle fleetpermit-0.1.1.tgz.sigstore
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+To install from the release assets, download the chart, its signature bundle and the image list,
+verify the chart as shown above, then install the verified file:
+
+```sh
+gh release download v0.1.1 -R fleetpermit/fleetpermit -p 'fleetpermit-0.1.1.tgz*' -p images.txt
+# verify fleetpermit-0.1.1.tgz with cosign verify-blob as above
+helm install fleetpermit ./fleetpermit-0.1.1.tgz -n fleetpermit-system --create-namespace
+```
+
 Release tags and commits are also signed and show as Verified on GitHub.
 
 ## RBAC
@@ -86,27 +104,36 @@ Generated from the `+kubebuilder:rbac` markers in `internal/controller` ([`confi
 | `fleetpermit.github.io` | fleetaccesspolicies | get, list, watch, update | reconcile policies; add and remove the cleanup finalizer |
 | `fleetpermit.github.io` | toolaccessleases | get, list, watch | read leases; the controller never changes a lease's spec |
 | `fleetpermit.github.io` | fleetaccesspolicies/status, toolaccessleases/status | get, patch | report status |
-| `fleetpermit.github.io` | fleetaccesspolicies/finalizers | update | set the cleanup finalizer where the `OwnerReferencesPermissionEnforcement` admission plugin is enabled |
 | `cluster.open-cluster-management.io` | placements, placementdecisions, managedclusters | get, list, watch | resolve placements; report unavailable clusters |
 | `work.open-cluster-management.io` | manifestworks | get, list, watch, create, patch, delete | deliver, update and withdraw grants (updates are merge patches) |
 | `coordination.k8s.io` (release namespace) | leases | get, list, watch, create, update, patch, delete | leader election |
 | core, `events.k8s.io` (release namespace) | events | create, patch | events |
 
-On the hub, the controller cannot read Secrets, create workloads or modify RBAC. The e2e `RBAC`
+On the hub, the controller has no access to the Secret, workload or RBAC APIs. The e2e `RBAC`
 scenario checks this with `kubectl auth can-i`.
 
-The `manifestworks` permission is cluster-wide, so the controller can create and update
-`ManifestWork` in every managed-cluster namespace. The OCM work agent applies whatever a
-`ManifestWork` contains on its managed cluster. FleetPermit only ever renders `XAccessPolicy` objects,
-but a stolen controller credential could deliver other content. Treat the controller's ServiceAccount
-and namespace as privileged, and consider these controls:
+The `manifestworks` permission is cluster-wide. The controller can therefore read every
+`ManifestWork` on the hub, including content other tools deliver through ManifestWork (which can
+embed Secrets), and it can create and update `ManifestWork` in every managed-cluster namespace. The
+OCM work agent applies whatever a `ManifestWork` contains on its managed cluster. FleetPermit only
+ever renders `XAccessPolicy` objects, but a stolen controller credential could read other tools'
+content and deliver its own. Treat the controller's ServiceAccount and namespace as privileged, and
+consider these controls:
 
 - Set `--work-executor` (Helm value `workExecutor`) to a managed-cluster ServiceAccount that may only
-  manage `xaccesspolicies`. The work agent then applies FleetPermit's content only as far as that
-  ServiceAccount's permissions allow, instead of with its own. OCM's hub webhook requires the
-  controller to hold the `execute-as` permission on `manifestworks` for that ServiceAccount. The Helm
-  chart adds a ClusterRole for exactly that ServiceAccount when `workExecutor` is set and
-  `rbac.create` is true; otherwise, add the same rule yourself. The lab does not exercise this option.
+  manage `xaccesspolicies`. The work agent then checks each object in FleetPermit's ManifestWorks
+  against that ServiceAccount's permissions (a SubjectAccessReview) before applying it, and refuses
+  what the ServiceAccount may not manage. It still writes with its own identity. OCM's hub webhook
+  requires the controller to hold the `execute-as` permission on `manifestworks` for that
+  ServiceAccount. The Helm chart adds a ClusterRole for exactly that ServiceAccount when
+  `workExecutor` is set and `rbac.create` is true; otherwise, add the same rule yourself. The lab
+  does not exercise this option.
+
+  This does not stop a stolen controller credential on its own. The hub webhook checks `execute-as`
+  only for a ManifestWork that names an executor, so the credential can create a ManifestWork without
+  one, which the work agent applies with its own permissions. Only OCM's `NilExecutorValidating`
+  feature gate on the hub (alpha, off by default in OCM v1.3) makes the webhook check ManifestWorks
+  without an executor too.
 - Grant write access to `toolaccessleases/status` and `fleetaccesspolicies/status` only to the
   controller. A lease without `spec.duration` keeps its expiry pinned in `status.expiresAt`, so a
   principal that can write lease status could extend such a lease up to the policy's `maxDuration`
@@ -115,8 +142,8 @@ and namespace as privileged, and consider these controls:
 On managed clusters, [`work-agent-rbac.yaml`](../config/managed-cluster/work-agent-rbac.yaml) adds
 permissions to the OCM work agent. It is a ClusterRole labelled
 `open-cluster-management.io/aggregate-to-work: "true"`, which OCM aggregates into the work agent's
-role, and it grants every verb on `xaccesspolicies`. It does not restrict anything else the work agent
-can already do.
+role, and it grants get, list, watch, create, update, patch and delete on `xaccesspolicies`. It does
+not restrict anything else the work agent can already do.
 
 ## Metrics
 
@@ -152,7 +179,7 @@ Set `tracing.otlpEndpoint` (or `OTEL_EXPORTER_OTLP_ENDPOINT`). Spans: `fleetperm
 
 ## Day-2 operations
 
-- Revoke a lease early with `kubectl delete toolaccesslease <name>`. The grant is withdrawn from every
+- Revoke a lease early with `kubectl -n <namespace> delete toolaccesslease <name>`. The grant is withdrawn from every
   cluster the hub can reach; [results.md](results.md) shows the measured "Lease deleted → first DENY"
   latency. A cluster the hub cannot reach keeps the grant until it expires.
 - To stop a whole policy in an emergency, delete the `FleetAccessPolicy`. Its finalizer withdraws
@@ -163,26 +190,43 @@ Set `tracing.otlpEndpoint` (or `OTEL_EXPORTER_OTLP_ENDPOINT`). Spans: `fleetperm
   `Degraded/PlacementNotFound`. Its leases are not denied, though. They go to phase `Pending`
   (`NoEligibleClusters`), and a lease that has not expired is delivered again if the placement comes
   back. This pauses the policy and leaves its leases in place.
-- To upgrade FleetPermit, apply the CRDs first, then run `helm upgrade`. Helm installs the chart's
-  `crds/` directory on first install only and never upgrades it:
+- To upgrade FleetPermit, check out the new release tag, apply the CRDs, then run `helm upgrade`.
+  Helm installs the chart's `crds/` directory on first install only and never upgrades it:
 
   ```sh
+  git checkout v0.1.1
   kubectl apply --server-side --force-conflicts -f charts/fleetpermit/crds/
   helm upgrade fleetpermit charts/fleetpermit -n fleetpermit-system
+  kubectl -n fleetpermit-system rollout status deploy/fleetpermit-controller
   ```
 
   State lives in the API, and a restart neither withdraws nor re-creates grants. The upgrade from
-  v0.1.0 to v0.1.1 adds the CRD rule that rejects lease durations below 10s, and renames delivered
+  v0.1.0 to v0.1.1 adds the CRD rule that rejects lease durations below 10 s, and renames delivered
   objects; see the [changelog](../CHANGELOG.md).
-- The chart deploys the controller image whose tag is the chart's `appVersion`. Installing from a
-  `main` checkout between releases therefore deploys the last release's image, not the code you
-  checked out. To run unreleased code, build images with `make images`, push them, and set
-  `image.repository` and `image.tag`.
+- The chart deploys the controller image named by the chart's `appVersion`. A `main` checkout
+  therefore deploys the image of that release, not the code you checked out, and while a release is
+  being prepared but not yet tagged, that image does not exist. Install from a release tag or from
+  the chart attached to the release. To run unreleased code, build images with `make images`, push
+  them, and set `image.repository` and `image.tag`.
 - Before upgrading upstream components, read [upstream-compatibility.md](upstream-compatibility.md).
   Run `make test-integration` with the new upstream CRD in `test/fixtures/upstream`, and run the e2e
   suite in the lab, before rolling out.
-- The klusterlet's `workConfiguration.statusSyncInterval` controls how quickly acceptance and drift
-  are reported to the hub. It affects status and drift repair, and has no effect on enforcement. The
-  lab sets 10s.
-- To uninstall, delete all `FleetAccessPolicy` objects first so their finalizers withdraw every grant,
-  then run `helm uninstall fleetpermit -n fleetpermit-system`.
+- The klusterlet's `workConfiguration.statusSyncInterval` sets how often the work agent reports
+  status feedback and resource availability to the hub: 10 s by default in OCM v1.3.1 (the work
+  agent's `--status-sync-interval` default), and the lab sets 10 s explicitly. It affects status
+  latency and how quickly a deleted delivered object is noticed and re-applied. It has no effect on
+  enforcement.
+- To uninstall, delete every `FleetAccessPolicy` first, so that their finalizers withdraw every
+  grant while the controller is still running, then remove the release, the CRDs and the namespace:
+
+  ```sh
+  kubectl delete fleetaccesspolicies --all --all-namespaces --wait
+  helm uninstall fleetpermit -n fleetpermit-system
+  kubectl delete -f charts/fleetpermit/crds/      # also deletes every remaining ToolAccessLease
+  kubectl delete namespace fleetpermit-system
+  ```
+
+  Helm does not delete the CRDs, so until you do, the CRDs and your `ToolAccessLease` objects stay.
+  On managed clusters, `work-agent-rbac.yaml` and the default-deny anchor stay until you delete them.
+  While the anchor exists, the backend denies every call; delete it too if the backend should go back
+  to upstream's behaviour without FleetPermit.

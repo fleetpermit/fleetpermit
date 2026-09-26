@@ -30,7 +30,7 @@ progress; they are not commitments.
 - Additional placement providers built on other neutral multicluster projects, through the existing
   `placement.Provider` seam, if users need them.
 - Additional enforcement providers through the `enforcement.Renderer` seam.
-- Protocols beyond MCP, as Kubernetes agentic networking APIs support them.
+- Protocols beyond MCP, as kube-agentic-networking supports them.
 - A separate, optional approval workflow for leases.
 
 ## Out of scope

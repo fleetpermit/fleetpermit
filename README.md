@@ -10,7 +10,7 @@
   <a href="https://github.com/fleetpermit/fleetpermit/actions/workflows/ci.yaml"><img alt="CI" src="https://github.com/fleetpermit/fleetpermit/actions/workflows/ci.yaml/badge.svg"></a>
   <a href="https://github.com/fleetpermit/fleetpermit/actions/workflows/e2e.yaml"><img alt="E2E: 1 hub + 3 clusters" src="https://github.com/fleetpermit/fleetpermit/actions/workflows/e2e.yaml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
-  <a href="docs/upstream-compatibility.md"><img alt="API: v1alpha1" src="https://img.shields.io/badge/API-v1alpha1-orange"></a>
+  <a href="docs/api.md"><img alt="API: v1alpha1" src="https://img.shields.io/badge/API-v1alpha1-orange"></a>
   <a href="https://fleetpermit.github.io/"><img alt="Website" src="https://img.shields.io/badge/docs-fleetpermit.github.io-0e7490"></a>
 </p>
 
@@ -45,7 +45,7 @@ of it. See the [architecture](docs/architecture.md).
 ### What is new?
 
 Authorization for agent-to-tool calls that is both fleet-wide and time-bound. Open Cluster Management
-places one policy across a changing fleet, and Kubernetes Agentic Networking enforces it on every
+places one policy across a changing fleet, and kube-agentic-networking enforces it on every
 call. Each lease's expiry is written into the gateway's own rule, so it holds even when the hub is
 unreachable. FleetPermit does not serve tools itself; it governs calls to the MCP servers you already
 run. See the [design decisions](docs/design.md).
@@ -53,8 +53,9 @@ run. See the [design decisions](docs/design.md).
 ### What works today?
 
 The whole path runs on real clusters: an OCM `Placement`, then a FleetPermit policy and lease, then a
-Kubernetes Agentic Networking `XAccessPolicy` on Envoy, then an MCP ALLOW or DENY. The lab has one hub
-and three managed clusters, and anyone can start it with `make demo-up` ([see it run](#see-it-run)).
+kube-agentic-networking `XAccessPolicy` on Envoy, then an MCP ALLOW or DENY. The lab has one hub and
+three managed clusters, and `make demo-up` builds it on one machine
+([prerequisites](#prerequisites), [see it run](#see-it-run)).
 
 ### What evidence exists?
 
@@ -68,7 +69,7 @@ latency, the upstream conformance suite, and the same scenarios reproduced on a 
 
 It has no vendor, cloud, distribution or model lock-in. It builds only on Kubernetes, CNCF and Linux
 Foundation projects and is licensed Apache-2.0. Placement and enforcement sit behind provider seams.
-Every upstream version is pinned, and a weekly canary validates rendered policies against the latest
+Every upstream component version is pinned, and a weekly canary validates rendered policies against the latest
 upstream `XAccessPolicy` schema and reports newer releases. See the [dependencies](DEPENDENCIES.md).
 
 ## See it run
@@ -79,7 +80,7 @@ upstream `XAccessPolicy` schema and reports newer releases. See the [dependencie
 
 A recording of `make demo-run` against the lab, sped up 1.3×. Every ALLOWED and DENIED line is a real
 MCP call through a real gateway. The `$` command lines are shortened for readability
-([how the recordings are made](demo/recordings)). Full-length MP4s:
+([how the recordings are made](demo/recordings)). Full-length MP4s at normal speed:
 [overview](https://fleetpermit.github.io/assets/video/demo-overview.mp4) ·
 [security checks](https://fleetpermit.github.io/assets/video/demo-security.mp4) ·
 [hub disconnected](https://fleetpermit.github.io/assets/video/demo-disconnected-expiry.mp4).
@@ -96,8 +97,8 @@ belongs on and delivers it there. FleetPermit combines the two:
 | Question | Answered by | FleetPermit field |
 |---|---|---|
 | **Who?** | a SPIFFE ID, authenticated with mTLS at the gateway | `spec.subjects` (policy), `spec.subject` (lease) |
-| **Where?** | an OCM `Placement` and its `PlacementDecision`s | `placement.placementRef` |
-| **What?** | MCP tool names, matched by the gateway | `permissions` |
+| **Where?** | an OCM `Placement` and its `PlacementDecision`s | `spec.placement.placementRef` (policy), `spec.clusters` (lease, optional) |
+| **What?** | MCP tool names, matched by the gateway | `spec.permissions` (policy and lease) |
 | **How long?** | a lease whose expiry is part of the enforced rule | `spec.lease.maxDuration` (policy), `spec.duration` (lease) |
 
 ## How it works
@@ -129,7 +130,7 @@ The components involved, and every flow animated step by step, are on the
    ```
    request.mcp.tool_name in ['restart_workload'] && request.time < timestamp('2026-09-26T10:15:00Z')
    ```
-5. The OCM work agent applies it, and the agentic-networking controller programs Envoy. A tool call is
+5. The OCM work agent applies it, and the kube-agentic-networking controller programs Envoy. A tool call is
    allowed only if the caller's mTLS identity, the tool and the current time all match. At the expiry
    instant the gateway starts denying by itself. It does not need the hub, FleetPermit or the network
    between them. FleetPermit then withdraws the expired grant.
@@ -180,8 +181,9 @@ incident-42   sre-remediation   2          2026-09-26T10:15:00Z   Active   1m
 ```
 
 A lease is `Denied`, with the reason in its conditions, if it asks for a tool the policy does not
-list, for longer than `maxDuration`, or for a subject the policy does not name. Provided only the
-controller can write `toolaccessleases/status`, denied and expired leases never become active again.
+list, for longer than `maxDuration`, or for a subject the policy does not name. A lease whose policy
+was deleted is denied too. Provided only the controller can write `toolaccessleases/status`, denied
+and expired leases never become active again.
 A lease's spec cannot be edited after creation.
 
 ## Security properties
@@ -200,13 +202,15 @@ A lease's spec cannot be edited after creation.
 - Every delivered object carries the source policy, its UID and generation, the cluster and a
   deterministic SHA-256 content digest. Objects with lease grants also list the lease UIDs and the
   latest expiry, so a rule on a cluster can be traced back to its request.
-- On the hub, the controller reads OCM placement and cluster APIs and writes only `ManifestWork` and
-  its own objects. It has no access to Secrets, workloads or RBAC. It can create and update
-  `ManifestWork` in every managed-cluster namespace, though, and the OCM work agent applies that
-  content on the managed cluster, so treat the controller's ServiceAccount as a privileged
-  credential. The `--work-executor` flag (Helm value `workExecutor`) makes the work agent apply
-  FleetPermit's content as a restricted managed-cluster ServiceAccount (not exercised by the lab
-  tests; see [RBAC](docs/operations.md#rbac)).
+- On the hub, the controller reads OCM placement and cluster APIs and ManifestWorks, and writes only
+  `ManifestWork` and its own objects. It has no access to the Secret, workload or RBAC APIs. Its
+  `ManifestWork` permissions cover every managed-cluster namespace, though: it can read content other
+  tools deliver through `ManifestWork` (which can include Secrets) and can create and update
+  `ManifestWork` that the OCM work agent applies, so treat its ServiceAccount as a privileged
+  credential. The `--work-executor` flag (Helm value `workExecutor`) makes the work agent check
+  FleetPermit's content against a restricted managed-cluster ServiceAccount before applying it. It
+  does not stop a stolen controller credential on its own, and the lab tests do not exercise it; see
+  [RBAC](docs/operations.md#rbac).
 
 <p align="center">
   <img src="docs/assets/demo-disconnected-expiry.gif" alt="Recording of the hub-disconnect demo: a 40 second lease works on cluster-east and cluster-west; the hub node is paused and kubectl to the hub fails; the rule on cluster-east still shows the CEL time bound; after expiry both clusters DENY while the grant object is still present; the hub is reconnected, the lease shows Expired and the policy's only rule is no-active-grants." width="880">
@@ -226,12 +230,44 @@ MCP tool server. The two agent identities run as pods on cluster-east and call a
 API key for any AI model is needed. Every decision in the demo is a real MCP call through a real
 gateway.
 
+### Prerequisites
+
+podman (or docker), kind, kubectl, clusteradm, Helm, jq, curl, Go and Python 3. Give the container
+engine about 8 CPUs and 16 GiB of memory; with podman, set this on the podman machine.
+
+### Run the lab
+
 ```sh
-make demo-up     # ~10 minutes: clusters, OCM, Gateway API, agentic networking, FleetPermit
+git clone https://github.com/fleetpermit/fleetpermit && cd fleetpermit
+make demo-up     # ~10 minutes: clusters, OCM, Gateway API, kube-agentic-networking, FleetPermit
 make demo-run    # narrated walkthrough (also: demo/run.sh security | disconnect)
-make test-e2e    # every scenario below, with evidence written to test-results/
+make test-e2e    # every end-to-end scenario (listed in docs/testing.md); rewrites the committed evidence in test-results/
 make demo-down   # removes only the clusters this lab created
 ```
+
+### Create your own lease in the lab
+
+After `make demo-run`, the lab has the demo policy `sre-remediation` (maximum 10 minutes) and the
+Placement `production-clusters`, which selects cluster-east and cluster-west. The demo leaves its
+lease `incident-42` in phase `Expired`, and a lease's spec cannot change, so delete it before you
+create the sample lease with the same name. The lab has its own kubeconfig; your current kubectl
+context is not used.
+
+```sh
+export KUBECONFIG=$PWD/.work/lab/kubeconfig
+kubectl --context kind-fleetpermit-hub -n fleet delete toolaccesslease incident-42 --ignore-not-found
+kubectl --context kind-fleetpermit-hub create -f config/samples/toolaccesslease.yaml
+kubectl --context kind-fleetpermit-hub -n fleet get fap,tal
+
+# call restart_workload as sre-agent (a pod on cluster-east) through cluster-west's gateway
+GW=$(kubectl --context kind-fleetpermit-cluster-west -n mcp-tools get gateway agentic-gateway \
+  -o jsonpath='{.status.addresses[0].value}')
+kubectl --context kind-fleetpermit-cluster-east -n agents exec deploy/sre-agent -c agent -- \
+  /demo-probe -url "https://$GW:10001/mcp" -tool restart_workload -args '{"namespace":"shop","name":"checkout"}'
+```
+
+The probe prints one JSON line with the decision. Use `deploy/security-agent` to see the denial for
+an unlisted identity, or `-tool read_secret` for a tool the policy does not permit.
 
 ### The two test agents
 
@@ -264,7 +300,8 @@ code. The agent needs three things:
 3. a listing as a subject in a `FleetAccessPolicy`, and an active lease
 
 An agent without a trusted certificate is rejected during the TLS handshake, before any MCP message
-is read. An agent with a trusted but unlisted identity is denied, in the same way as `security-agent`.
+is read. That is upstream behaviour (the gateway listener requires a client certificate) and is not
+covered by a FleetPermit test. An agent with a trusted but unlisted identity is denied, in the same way as `security-agent`.
 The upstream [quickstart](https://github.com/kubernetes-sigs/kube-agentic-networking/tree/v0.2.0/site-src/guides/quickstart)
 ("Bring your own agent") shows how to give an existing agent an identity and route it through the gateway.
 
@@ -276,8 +313,9 @@ Recordings of real runs: [demo/recordings](demo/recordings) (asciinema) and MP4s
   <img src="docs/assets/decision-matrix.svg" alt="Expected decisions for 2 agents, 3 clusters and 4 tools: with the lease active, only sre-agent calling get_cluster_health or restart_workload on cluster-east or cluster-west is allowed; with the lease expired every call is denied." width="880">
 </p>
 
-The diagram shows the *expected* decisions under the demo policy. The table below shows what 48 real
-calls through the lab's gateways returned.
+The diagram shows the *expected* decisions under the demo policy. The table below shows what the 24
+calls made while the lease was active returned through the lab's gateways; the same 24 calls after
+expiry are summarized below it (48 in all).
 
 <!-- results:start -->
 Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM v1.3.1, kube-agentic-networking v0.2.0, Darwin/arm64, 2026-09-26):
@@ -341,12 +379,16 @@ envtest scale simulation, and are not a production benchmark.
 | Envoy | v1.36.6 | CNCF Graduated | data plane (via the reference implementation) |
 | Model Context Protocol | 2025-06-18 client handshake | Linux Foundation (Agentic AI Foundation) | tool protocol |
 
-The upstream agentic-networking APIs are experimental and will change. FleetPermit pins the versions
+The upstream kube-agentic-networking APIs are experimental and will change. FleetPermit pins the versions
 above and runs its end-to-end suite against them. A weekly canary validates rendered policies against
 the latest upstream `XAccessPolicy` CRD schema and reports newer upstream releases; it does not run
 the upstream controller. Details: [docs/upstream-compatibility.md](docs/upstream-compatibility.md).
 
 ## Installation
+
+Install from a release: check out the release tag (`git checkout v0.1.1`), or download the signed
+chart attached to the release ([verifying releases](docs/operations.md#verifying-releases)). A `main`
+checkout between releases does not match any published image.
 
 On the Open Cluster Management hub:
 
@@ -361,6 +403,10 @@ kubectl apply -f config/managed-cluster/work-agent-rbac.yaml      # adds XAccess
 kubectl apply -f config/managed-cluster/default-deny-anchor.yaml  # edit namespace/backend name first
 ```
 
+A policy references an OCM `Placement` in its own namespace, and OCM only lets that Placement select
+clusters when a `ManagedClusterSetBinding` binds a cluster set to the namespace.
+[`config/samples`](config/samples) has a Placement, a policy and a lease to start from.
+
 Images are published to `ghcr.io/fleetpermit`, and release images and assets are signed with
 Sigstore cosign ([verifying releases](docs/operations.md#verifying-releases)). Every chart value
 (registry, repository, tag, resources, replicas, metrics, RBAC, leader election) is configurable, so
@@ -372,7 +418,7 @@ you can rebuild with `make images` and publish anywhere. See [docs/operations.md
 make help               # every target
 make verify             # gofmt, vet, generated code, manifests, Helm lint, secret scan
 make test               # unit (race detector) + integration (real kube-apiserver via envtest)
-make benchmark          # controller scale simulation + real-cluster latency (lab required)
+make benchmark          # controller scale simulation; real-cluster latency too when the lab is up
 ```
 
 CI's build and test steps call these `make` targets; release publishing lives in the release

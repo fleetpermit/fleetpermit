@@ -36,7 +36,7 @@ project's own pages.
 | Denied calls get HTTP 200 with a JSON-RPC error (code 403, "Access to this tool is forbidden.") | quickstart documentation, upstream issue #169 | The probe also treats HTTP 401/403 as a denial. |
 | The v0.2.0 conformance suite's MCP backend image (`quickstart-everything-mcp:main`) is not published | `conformance/resources/base.yaml.tmpl` | `hack/conformance.sh` builds it from the upstream Dockerfile at the pinned tag. |
 | An empty `ManifestWork` is rejected by OCM's admission webhook (the CRD schema alone allows it) | OCM work webhook | FleetPermit delivers an inert policy instead of an empty work (ADR-4). |
-| Status feedback JSONPaths are polled every `statusSyncInterval` | OCM `pkg/work/spoke/statusfeedback` | Affects status latency only. |
+| The work agent reports status feedback and resource availability every `statusSyncInterval` (10 s by default in OCM v1.3.1, from the work agent's `--status-sync-interval` flag; the lab sets 10 s explicitly) | OCM `pkg/work/spoke/options.go`, `pkg/work/spoke/statusfeedback` | Affects status latency and how quickly a deleted delivered object is noticed and re-applied. It does not affect enforcement. |
 | The work agent re-applies on ManifestWork spec or label changes, and otherwise every 4 to 6 minutes (a 4-minute base with up to 50% added jitter) | OCM `pkg/work/spoke/controllers/manifestcontroller` | Drift repair falls back to the periodic resync. |
 
 ## How Allow policies are combined
@@ -61,9 +61,9 @@ change. The lab end-to-end suite would show it immediately, because every ALLOW 
 
 Gateway API (v1.5.1) and Envoy (v1.36.x) are pinned to the versions that kube-agentic-networking
 v0.2.0 itself is tested with (its CI and quickstart), rather than to the newest releases of those
-projects. FleetPermit's data plane is whatever the agentic-networking reference implementation
+projects. FleetPermit's data plane is whatever the kube-agentic-networking reference implementation
 programs, so its tested combination is the one that matters. The upstream canary reports newer
-releases so they can be adopted deliberately, together with a new agentic-networking release.
+releases so they can be adopted deliberately, together with a new kube-agentic-networking release.
 
 ## Keeping up with upstream
 
