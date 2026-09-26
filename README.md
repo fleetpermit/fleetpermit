@@ -102,6 +102,19 @@ belongs on and delivers it there. FleetPermit combines the two:
 
 ## How it works
 
+One lease, followed from request to expiry (animated, about 35 seconds per loop):
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-flow-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/architecture-flow-light.svg">
+    <img src="docs/assets/architecture-flow-light.svg" width="100%" alt="Animated walkthrough of one lease, in ten steps: 1. sre-agent has a SPIFFE identity from Kubernetes Pod Certificates. 2. An engineer creates ToolAccessLease incident-42 for restart_workload, 10 minutes. 3. FleetPermit on the Open Cluster Management hub checks WHO, WHERE, WHAT and HOW LONG against FleetAccessPolicy sre-remediation; all four pass. 4. The Placement selects env=production: cluster-east and cluster-west, not cluster-edge. 5. FleetPermit renders an XAccessPolicy with a CEL time bound and delivers it with one ManifestWork per cluster. 6. sre-agent calls restart_workload on cluster-east through the Envoy gateway: ALLOW. 7. cluster-edge has no grant: DENY; read_secret is not in the lease: DENY. 8. Ten minutes pass and the lease reaches its expiry, 10:15:00Z. 9. Envoy itself denies the same call because request.time is past the expiry, even with the hub down. 10. FleetPermit marks the lease Expired and withdraws the grant.">
+  </picture>
+</p>
+
+The components involved, and every flow animated step by step, are on the
+[website's architecture page](https://fleetpermit.github.io/architecture.html#flows).
+
 <p align="center"><img src="docs/assets/architecture.svg" alt="Architecture: the fleetpermit-controller on the Open Cluster Management hub renders XAccessPolicy grants and delivers them with ManifestWork to the clusters selected by a Placement; on each managed cluster the kube-agentic-networking Envoy gateway authenticates the agent's SPIFFE identity and enforces the tool and time bound." width="880"></p>
 
 1. A platform team writes a `FleetAccessPolicy`. It is the ceiling: the most that may ever be granted.
