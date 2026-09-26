@@ -1,0 +1,248 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: toolaccessleases.fleetpermit.github.io
+spec:
+  group: fleetpermit.github.io
+  names:
+    categories:
+    - fleetpermit
+    kind: ToolAccessLease
+    listKind: ToolAccessLeaseList
+    plural: toolaccessleases
+    shortNames:
+    - tal
+    singular: toolaccesslease
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.policyRef.name
+      name: Policy
+      type: string
+    - jsonPath: .spec.subject.spiffeID
+      name: Subject
+      priority: 1
+      type: string
+    - jsonPath: .status.clusterCount
+      name: Clusters
+      type: integer
+    - jsonPath: .status.expiresAt
+      name: Expires-At
+      type: string
+    - jsonPath: .status.phase
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ToolAccessLease activates a subset of a FleetAccessPolicy for a bounded
+          time. The spec is immutable: to change a lease, delete it and create a new
+          one, so that every grant is traceable to exactly one request.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ToolAccessLeaseSpec requests a subset of a policy for a bounded
+              time.
+            properties:
+              clusters:
+                description: |-
+                  Clusters optionally narrows the policy's placement to the named
+                  clusters. A cluster outside the placement never receives a grant.
+                items:
+                  type: string
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: set
+              duration:
+                description: |-
+                  Duration of the lease, measured from its creation. Defaults to the
+                  policy's defaultDuration and must not exceed its maxDuration.
+                type: string
+              permissions:
+                description: Permissions must be a subset of the policy's permissions.
+                items:
+                  description: Permission names one tool that may be invoked.
+                  properties:
+                    tool:
+                      description: |-
+                        Tool is the MCP tool name, as sent in params.name of a tools/call request.
+                        The character set is deliberately narrow: tool names are embedded in
+                        rendered authorization rules and must never be able to alter their meaning.
+                        The 20-character limit mirrors the upstream MCP params matcher.
+                      maxLength: 20
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                      type: string
+                  required:
+                  - tool
+                  type: object
+                maxItems: 16
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - tool
+                x-kubernetes-list-type: map
+              policyRef:
+                description: PolicyRef names a FleetAccessPolicy in the same namespace.
+                properties:
+                  name:
+                    description: Name of the referenced object.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              reason:
+                description: |-
+                  Reason is a free-text justification recorded for audit, such as an
+                  incident or change ticket number.
+                maxLength: 256
+                type: string
+              subject:
+                description: Subject must be one of the policy's subjects.
+                properties:
+                  spiffeID:
+                    description: |-
+                      SPIFFEID is the SPIFFE ID of the calling workload, for example
+                      spiffe://cluster.local/ns/agents/sa/sre-agent.
+                      The pattern matches the one accepted by the upstream XAccessPolicy API.
+                    maxLength: 512
+                    minLength: 10
+                    pattern: ^spiffe://[a-z0-9._-]+(/[A-Za-z0-9._-]+)*$
+                    type: string
+                required:
+                - spiffeID
+                type: object
+            required:
+            - permissions
+            - policyRef
+            - subject
+            type: object
+            x-kubernetes-validations:
+            - message: spec is immutable; create a new ToolAccessLease instead
+              rule: self == oldSelf
+          status:
+            description: ToolAccessLeaseStatus is the observed state of a lease.
+            properties:
+              clusterCount:
+                description: ClusterCount is len(Clusters), for kubectl output.
+                format: int32
+                type: integer
+              clusters:
+                description: Clusters that hold an active grant for this lease, sorted.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              conditions:
+                description: 'Conditions: Ready, Progressing, Degraded, Expired and
+                  Denied.'
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              expiresAt:
+                description: |-
+                  ExpiresAt is creationTimestamp plus the effective duration. It is
+                  computed once from immutable inputs and never extended.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation last processed by
+                  the controller.
+                format: int64
+                type: integer
+              phase:
+                description: Phase summarises the conditions.
+                enum:
+                - Pending
+                - Active
+                - Expired
+                - Denied
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,378 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: fleetaccesspolicies.fleetpermit.github.io
+spec:
+  group: fleetpermit.github.io
+  names:
+    categories:
+    - fleetpermit
+    kind: FleetAccessPolicy
+    listKind: FleetAccessPolicyList
+    plural: fleetaccesspolicies
+    shortNames:
+    - fap
+    singular: fleetaccesspolicy
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.clusterSummary
+      name: Clusters
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.activeLeases
+      name: Active-Leases
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          FleetAccessPolicy defines who may call which tools, on which clusters, and
+          for how long. It is the ceiling: a ToolAccessLease can activate a subset of
+          it for a bounded time, never more.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: FleetAccessPolicySpec is the maximum authority that leases
+              may activate.
+            properties:
+              enforcement:
+                default: {}
+                description: Enforcement selects how grants are enforced on each cluster.
+                properties:
+                  failMode:
+                    default: Closed
+                    description: |-
+                      FailMode is always Closed. The field exists so the behaviour is
+                      explicit in every policy; an open mode is intentionally not offered.
+                    enum:
+                    - Closed
+                    type: string
+                  provider:
+                    default: kubernetes-agentic-networking
+                    description: Provider renders grants into enforceable objects.
+                    enum:
+                    - kubernetes-agentic-networking
+                    type: string
+                type: object
+              lease:
+                default:
+                  defaultDuration: 15m
+                  maxDuration: 1h
+                  required: true
+                description: Lease controls time-bound activation.
+                properties:
+                  defaultDuration:
+                    default: 15m
+                    description: DefaultDuration is used when a lease does not request
+                      a duration.
+                    type: string
+                  maxDuration:
+                    default: 1h
+                    description: MaxDuration is the longest duration a lease may request.
+                    type: string
+                  required:
+                    default: true
+                    description: |-
+                      Required means permissions are only usable through an active
+                      ToolAccessLease. When false, every subject holds the permissions on
+                      every selected cluster for as long as the policy exists.
+                    type: boolean
+                type: object
+                x-kubernetes-validations:
+                - message: defaultDuration must not exceed maxDuration
+                  rule: '!has(self.defaultDuration) || !has(self.maxDuration) || duration(self.defaultDuration)
+                    <= duration(self.maxDuration)'
+                - message: maxDuration must not exceed 24h
+                  rule: '!has(self.maxDuration) || duration(self.maxDuration) <= duration(''24h'')'
+                - message: defaultDuration must be at least 10s
+                  rule: '!has(self.defaultDuration) || duration(self.defaultDuration)
+                    >= duration(''10s'')'
+              permissions:
+                description: Permissions is the set of tools that leases may request.
+                items:
+                  description: Permission names one tool that may be invoked.
+                  properties:
+                    tool:
+                      description: |-
+                        Tool is the MCP tool name, as sent in params.name of a tools/call request.
+                        The character set is deliberately narrow: tool names are embedded in
+                        rendered authorization rules and must never be able to alter their meaning.
+                        The 20-character limit mirrors the upstream MCP params matcher.
+                      maxLength: 20
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                      type: string
+                  required:
+                  - tool
+                  type: object
+                maxItems: 16
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - tool
+                x-kubernetes-list-type: map
+              placement:
+                description: Placement selects the clusters on which grants may exist.
+                properties:
+                  placementRef:
+                    description: PlacementRef names a Placement in the same namespace
+                      as this policy.
+                    properties:
+                      name:
+                        description: Name of the referenced object.
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  provider:
+                    default: ocm
+                    description: Provider resolves the placement. Only "ocm" is implemented.
+                    enum:
+                    - ocm
+                    type: string
+                required:
+                - placementRef
+                type: object
+              subjects:
+                description: Subjects lists the workload identities this policy may
+                  grant to.
+                items:
+                  description: |-
+                    Subject identifies a workload that may call tools.
+
+                    Identities are SPIFFE IDs. FleetPermit never issues identities itself; it
+                    relies on the enforcement layer to authenticate the caller (for the
+                    kubernetes-agentic-networking provider: the mTLS peer certificate).
+                  properties:
+                    spiffeID:
+                      description: |-
+                        SPIFFEID is the SPIFFE ID of the calling workload, for example
+                        spiffe://cluster.local/ns/agents/sa/sre-agent.
+                        The pattern matches the one accepted by the upstream XAccessPolicy API.
+                      maxLength: 512
+                      minLength: 10
+                      pattern: ^spiffe://[a-z0-9._-]+(/[A-Za-z0-9._-]+)*$
+                      type: string
+                  required:
+                  - spiffeID
+                  type: object
+                maxItems: 16
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - spiffeID
+                x-kubernetes-list-type: map
+              target:
+                description: |-
+                  Target identifies the tool server that enforces the grants on each
+                  selected cluster.
+                properties:
+                  namespace:
+                    description: Namespace on each managed cluster that contains the
+                      target.
+                    maxLength: 63
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                    type: string
+                  protocol:
+                    default: MCP
+                    description: Protocol is the agent-to-tool protocol. Only "MCP"
+                      is implemented.
+                    enum:
+                    - MCP
+                    type: string
+                  ref:
+                    description: Ref is the resource the rendered authorization policy
+                      attaches to.
+                    properties:
+                      group:
+                        default: agentic.networking.x-k8s.io
+                        description: Group of the target resource.
+                        enum:
+                        - agentic.networking.x-k8s.io
+                        - gateway.networking.k8s.io
+                        type: string
+                      kind:
+                        default: XBackend
+                        description: Kind of the target resource.
+                        enum:
+                        - XBackend
+                        - Gateway
+                        type: string
+                      name:
+                        description: Name of the target resource.
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - namespace
+                - ref
+                type: object
+            required:
+            - permissions
+            - placement
+            - subjects
+            - target
+            type: object
+          status:
+            description: FleetAccessPolicyStatus is the observed state of a FleetAccessPolicy.
+            properties:
+              activeLeases:
+                description: ActiveLeases is the number of leases currently granting
+                  authority.
+                format: int32
+                type: integer
+              clusterSummary:
+                description: ClusterSummary is ReadyClusters/SelectedClusters, for
+                  kubectl output.
+                type: string
+              clusters:
+                description: Clusters holds per-cluster detail, sorted by name.
+                items:
+                  description: ClusterStatus reports the state of one target cluster.
+                  properties:
+                    contentDigest:
+                      description: ContentDigest is the SHA-256 digest of the desired
+                        enforcement content.
+                      type: string
+                    grants:
+                      description: Grants is the number of lease grants rendered for
+                        this cluster.
+                      format: int32
+                      type: integer
+                    message:
+                      description: Message is a human readable detail.
+                      type: string
+                    name:
+                      description: Name of the managed cluster.
+                      type: string
+                    ready:
+                      description: |-
+                        Ready is true when the cluster has applied the current content digest
+                        and the enforcement layer accepted it.
+                      type: boolean
+                    reason:
+                      description: Reason is a CamelCase summary of the cluster state.
+                      type: string
+                  required:
+                  - name
+                  - ready
+                  type: object
+                maxItems: 512
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              conditions:
+                description: 'Conditions: Ready, Progressing and Degraded.'
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: ObservedGeneration is the generation last processed by
+                  the controller.
+                format: int64
+                type: integer
+              readyClusters:
+                description: ReadyClusters is the number of selected clusters in the
+                  desired state.
+                format: int32
+                type: integer
+              selectedClusters:
+                description: SelectedClusters is the number of clusters chosen by
+                  the placement.
+                format: int32
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

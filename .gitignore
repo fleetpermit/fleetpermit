@@ -1,0 +1,5 @@
+.work/
+bin/
+dist/
+*.cast.tmp
+cover.out
