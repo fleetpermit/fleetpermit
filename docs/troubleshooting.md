@@ -22,7 +22,7 @@ kubectl get fap <policy> -n <ns> -o jsonpath='{range .status.clusters[*]}{.name}
 | Cluster reason `ClusterUnavailable` | OCM reports the cluster unavailable; status may be stale | `kubectl get managedcluster <cluster>`; grants on it still expire on time |
 | Lease `Active` but `Degraded/CapacityExceeded` | more concurrent grants than the upstream rule limit on some clusters | the condition lists the clusters; reduce concurrent leases per policy, or split the policy |
 | Calls allowed on a cluster that should deny | the default-deny anchor is missing | `kubectl get xaccesspolicy -n <target-ns>` on the cluster; install the anchor |
-| Every call denied at `initialize` | caller identity not trusted, or not the policy subject | the caller's SPIFFE ID (`openssl x509 -noout -ext subjectAltName` on its certificate) and the gateway trust bundle |
+| Every call denied at `initialize` | the caller holds no active grant on that cluster (no lease, lease expired or withdrawn, cluster not placed), or is not a policy subject. An untrusted certificate fails the TLS handshake instead. | `kubectl get tal -o wide` for the subject and phase; the caller's SPIFFE ID (`openssl x509 -noout -ext subjectAltName` on its certificate); for TLS failures, the gateway trust bundle |
 | Calls denied at `tools/call` though the lease is Active | the tool name differs (exact match), or the lease is not yet Ready on that cluster | `kubectl get tal -o wide`; the rendered CEL rule on the cluster |
 
 ## Lab

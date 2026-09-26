@@ -95,10 +95,10 @@ belongs on and delivers it there. FleetPermit combines the two:
 
 | Question | Answered by | FleetPermit field |
 |---|---|---|
-| **Who?** | a SPIFFE ID, authenticated with mTLS at the gateway | `subjects`, `lease.subject` |
+| **Who?** | a SPIFFE ID, authenticated with mTLS at the gateway | `spec.subjects` (policy), `spec.subject` (lease) |
 | **Where?** | an OCM `Placement` and its `PlacementDecision`s | `placement.placementRef` |
 | **What?** | MCP tool names, matched by the gateway | `permissions` |
-| **How long?** | a lease whose expiry is part of the enforced rule | `lease.maxDuration`, `lease.duration` |
+| **How long?** | a lease whose expiry is part of the enforced rule | `spec.lease.maxDuration` (policy), `spec.duration` (lease) |
 
 ## How it works
 
@@ -166,29 +166,33 @@ incident-42   sre-remediation   2          2026-09-26T10:15:00Z   Active   1m
 ```
 
 A lease is `Denied`, with the reason in its conditions, if it asks for a tool the policy does not
-list, for longer than `maxDuration`, or for a subject the policy does not name. Denied and expired
-leases never become active again, and a lease's spec cannot be edited after creation.
+list, for longer than `maxDuration`, or for a subject the policy does not name. Provided only the
+controller can write `toolaccessleases/status`, denied and expired leases never become active again.
+A lease's spec cannot be edited after creation.
 
 ## Security properties
 
-- Errors never add authority. A missing placement, a rendering error or a denied lease withdraws
-  grants, and every lease expires on time. `failMode` accepts only `Closed`.
-- A backend with no grant is closed only when the shipped
-  [default-deny anchor](config/managed-cluster/default-deny-anchor.yaml) is installed next to it.
-  Upstream enforces nothing on a target that has no `XAccessPolicy` ([scenario A1](docs/results.md)).
+- With the default-deny anchor installed, errors never add authority: a missing placement, a
+  rendering error or a denied lease withdraws grants, and every lease expires on time. `failMode`
+  accepts only `Closed`.
+- On a cluster that FleetPermit does not currently select, or has withdrawn from, the backend is
+  closed only when the shipped [default-deny anchor](config/managed-cluster/default-deny-anchor.yaml)
+  is installed; on selected clusters FleetPermit's inert policy also denies. Upstream enforces nothing
+  on a target that has no `XAccessPolicy` ([scenario A1](docs/results.md)).
 - Expiry is enforced where the call happens. Envoy evaluates the time bound on every request, so a
   lease stops working on time even with the hub disconnected ([scenario S11](docs/results.md)).
 - Leases can narrow tools, duration and clusters, never widen them. Tool names are restricted to a
   character set that cannot alter a CEL expression.
-- Every delivered object carries the source policy UID, generation, lease UIDs, expiry and a
-  deterministic SHA-256 content digest, so a rule on a cluster can be traced back to its request.
+- Every delivered object carries the source policy, its UID and generation, the cluster and a
+  deterministic SHA-256 content digest. Objects with lease grants also list the lease UIDs and the
+  latest expiry, so a rule on a cluster can be traced back to its request.
 - On the hub, the controller reads OCM placement and cluster APIs and writes only `ManifestWork` and
   its own objects. It has no access to Secrets, workloads or RBAC. It can create and update
   `ManifestWork` in every managed-cluster namespace, though, and the OCM work agent applies that
   content on the managed cluster, so treat the controller's ServiceAccount as a privileged
   credential. The `--work-executor` flag (Helm value `workExecutor`) makes the work agent apply
-  FleetPermit's content as a restricted managed-cluster ServiceAccount
-  ([RBAC](docs/operations.md#rbac)).
+  FleetPermit's content as a restricted managed-cluster ServiceAccount (not exercised by the lab
+  tests; see [RBAC](docs/operations.md#rbac)).
 
 <p align="center">
   <img src="docs/assets/demo-disconnected-expiry.gif" alt="Recording of the hub-disconnect demo: a 40 second lease works on cluster-east and cluster-west; the hub node is paused and kubectl to the hub fails; the rule on cluster-east still shows the CEL time bound; after expiry both clusters DENY while the grant object is still present; the hub is reconnected, the lease shows Expired and the policy's only rule is no-active-grants." width="880">
@@ -203,9 +207,10 @@ and the [threat model](docs/threat-model.md), including the limitations they lis
 ## Demo
 
 The lab is reproducible on one machine: one OCM hub and three managed [kind](https://kind.sigs.k8s.io/)
-clusters. Each managed cluster runs the kube-agentic-networking reference gateway, a deterministic MCP
-tool server and two agent identities. No API key for any AI model is needed. Every decision in the
-demo is a real MCP call through a real gateway.
+clusters. Each managed cluster runs the kube-agentic-networking reference gateway and a deterministic
+MCP tool server. The two agent identities run as pods on cluster-east and call all three gateways. No
+API key for any AI model is needed. Every decision in the demo is a real MCP call through a real
+gateway.
 
 ```sh
 make demo-up     # ~10 minutes: clusters, OCM, Gateway API, agentic networking, FleetPermit
@@ -264,7 +269,7 @@ calls through the lab's gateways returned.
 Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM v1.3.1, kube-agentic-networking v0.2.0, Darwin/arm64, 2026-09-26):
 
 - **20 of 21 scenarios passed**, 0 failed, 1 not supported by the upstream API (argument-level matching).
-- **Reproduced** on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36248040097)).
+- **Reproduced** at commit dad8c38 on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36248040097)).
 - **Decision matrix: 48 of 48 real MCP calls matched the expected outcome.**
 
 #### Test agents and expected outcomes
@@ -307,7 +312,8 @@ Statement coverage of `internal/` (unit + integration): **91.8%**.
 <!-- results:end -->
 
 Full tables, raw evidence and methodology are in [docs/results.md](docs/results.md). All numbers come
-from local kind clusters on one development host and are not a production benchmark.
+from local kind clusters on one development host, except the GitHub-hosted reproduction and the
+envtest scale simulation, and are not a production benchmark.
 
 ## Supported upstream versions
 
@@ -354,8 +360,9 @@ make test               # unit (race detector) + integration (real kube-apiserve
 make benchmark          # controller scale simulation + real-cluster latency (lab required)
 ```
 
-CI runs the same `make` targets, and nothing lives only in workflow YAML. See
-[docs/testing.md](docs/testing.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+CI's build and test steps call these `make` targets; release publishing lives in the release
+workflow and `hack/` scripts. See [docs/testing.md](docs/testing.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 

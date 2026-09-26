@@ -30,7 +30,8 @@ maintainers. The project aims for maintainers from more than one organisation as
 
 1. Vendor neutrality: architectural dependencies come from the Kubernetes, CNCF or Linux Foundation
    ecosystems ([DEPENDENCIES.md](DEPENDENCIES.md)).
-2. Errors never add authority: a failure withdraws grants or leaves them to expire on time.
+2. With the default-deny anchor installed, errors never add authority: a failure withdraws grants or
+   leaves them to expire on time.
 3. Claims in documentation must be backed by tests or measurements.
 
 ## Changes to this document

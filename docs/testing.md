@@ -25,7 +25,7 @@ Every layer runs from a clean clone with `make`. CI calls the same targets.
 | S8 | lease asks for an unpermitted tool | lease Denied |
 | S9 | lease asks for 1h, policy max 10m | lease Denied |
 | S10 | rendered policy deleted on a managed cluster | restored; the anchor denies meanwhile |
-| S11 | hub paused before expiry | DENY at expiry on every cluster, hub unreachable |
+| S11 | hub paused before expiry | DENY at expiry on east and west, hub unreachable |
 | S12 | hub resumed | lease Expired, stale grants withdrawn |
 | S13 | two leases, different tools and durations | independent expiry |
 | S14 | malformed policy | rejected at admission |
@@ -37,8 +37,8 @@ Every layer runs from a clean clone with `make`. CI calls the same targets.
 | RBAC | controller ServiceAccount | cannot touch pods, secrets, RBAC or namespaces; can write ManifestWork |
 | METRICS | metrics endpoint | every `fleetpermit_*` metric present |
 
-Run a subset with `test/e2e/run.sh S1 S5 S11`. Every probe response, including the test agent that
-made the call, is kept as evidence in `test-results/e2e-results.json`.
+Run a subset with `test/e2e/run.sh S1 S5 S11`. The probe responses that decided each scenario,
+including the test agent that made each call, are kept as evidence in `test-results/e2e-results.json`.
 
 Scenarios that measure latency across clusters (S1, R1, S7, S11) and the real-cluster benchmark poll
 all affected clusters concurrently, from the same start time, with real MCP calls. Waiting for one
@@ -68,8 +68,8 @@ per-test results and a summary in `test-results/conformance/`. It declares
 `SupportAccessPolicySPIFFESource`, because FleetPermit relies on SPIFFE source matching. External
 authorization tests are skipped because FleetPermit does not use that feature.
 
-The v0.2.0 suite deploys `quickstart-everything-mcp:main` from the upstream staging registry, which no
-longer publishes that image (the repository has no tags). The script builds it from the upstream
+The v0.2.0 suite deploys `quickstart-everything-mcp:main` from the upstream staging registry, which
+does not publish that image (the repository has no tags). The script builds it from the upstream
 Dockerfile at the same tag and loads it into the cluster, so the test code itself is untouched.
 
 ## Coverage

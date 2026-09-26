@@ -9,8 +9,8 @@
    each, so a team can let on-call engineers create leases without letting them change the ceiling.
 2. Authorization is enforced where the call happens. The gateway in front of the tool server checks
    identity, tool and time. The hub makes decisions but does not sit in the request path.
-3. Errors never add authority. Each failure FleetPermit handles either withdraws grants or leaves them
-   to expire on time:
+3. With the default-deny anchor installed, errors never add authority. Each failure FleetPermit
+   handles either withdraws grants or leaves them to expire on time:
    - no placement: nothing is delivered, and existing grants are withdrawn;
    - rendering error: that cluster's grants are withdrawn;
    - lease violates the policy: the lease is `Denied`, which is terminal;
@@ -18,15 +18,17 @@
    - hub or controller unavailable: delivered leases still expire on time, and nothing new is granted.
 
    Standing grants (`lease.required: false`) have no expiry; they last until the policy or its
-   placement changes. `failMode` accepts only `Closed`. A backend that holds no FleetPermit grant is
-   closed only when the default-deny anchor is installed next to it. Without the anchor,
+   placement changes. `failMode` accepts only `Closed`. On a cluster that FleetPermit does not
+   currently select, or has withdrawn from, the backend is closed only when the anchor is installed;
+   on selected clusters FleetPermit's inert policy also denies. Without the anchor,
    kube-agentic-networking v0.2.0 enforces nothing on a target that has no `XAccessPolicy`
    (scenario A1), so the anchor is part of the installation.
 4. Leases are subsets. A lease can narrow tools, duration and clusters, never widen them. Its spec
    cannot be edited after creation.
-5. Delivered rules are traceable. Every delivered object names its policy UID, policy generation,
-   lease UIDs, cluster, expiry and SHA-256 content digest, so a rule found on a cluster leads back to
-   the request that created it.
+5. Delivered rules are traceable. Every delivered object carries the source policy, its UID and
+   generation, the cluster and a SHA-256 content digest. Objects with lease grants also list the
+   lease UIDs and the latest expiry, so a rule found on a cluster leads back to the request that
+   created it.
 
 ## Who can do what
 
@@ -46,8 +48,8 @@ Grant `create` on `toolaccessleases`. Do not grant `update` (the spec is immutab
 The controller itself is a privileged identity on the hub. It has no access to Secrets, workloads or
 RBAC, but it can create and update `ManifestWork` in every managed-cluster namespace, and the OCM work
 agent applies that content on the managed cluster. The `--work-executor` flag makes the work agent
-apply FleetPermit's content as a restricted managed-cluster ServiceAccount; see
-[RBAC](operations.md#rbac).
+apply FleetPermit's content as a restricted managed-cluster ServiceAccount (not exercised by the lab
+tests); see [RBAC](operations.md#rbac).
 
 ## Identity
 

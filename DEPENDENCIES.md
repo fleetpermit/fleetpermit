@@ -21,7 +21,7 @@ with the APIs used.
 | `sigs.k8s.io/yaml` | v1.6.0 | yaml | Kubernetes SIG | MIT, BSD-3-Clause and Apache-2.0 (per file) | tests |
 | `open-cluster-management.io/api` | v1.3.0 | Open Cluster Management | CNCF Sandbox | Apache-2.0 | Placement, PlacementDecision, ManagedCluster, ManifestWork types |
 | `github.com/prometheus/client_golang` | v1.24.1 | Prometheus | CNCF Graduated | Apache-2.0 | metrics |
-| `go.opentelemetry.io/otel`, `/sdk`, `/exporters/otlp/otlptrace/otlptracehttp` | v1.46.0 | OpenTelemetry | CNCF Incubating | Apache-2.0 | tracing |
+| `go.opentelemetry.io/otel`, `/sdk`, `/exporters/otlp/otlptrace/otlptracehttp` | v1.46.0 | OpenTelemetry | CNCF Graduated | Apache-2.0 | tracing |
 | `github.com/modelcontextprotocol/go-sdk` | v1.8.0 | Model Context Protocol Go SDK | Linux Foundation (Agentic AI Foundation) | Apache-2.0 and MIT: the project is moving from MIT to Apache-2.0, new contributions are Apache-2.0, and code whose authors have not agreed to relicense stays MIT; documentation is CC-BY-4.0 (see its `LICENSE` file) | demo tool server only (`demo/tools/mcp-server`) |
 
 Transitive dependencies are those of the modules above (for example `go.uber.org/zap` through

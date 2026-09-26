@@ -1,8 +1,10 @@
 # API reference
 
 API group `fleetpermit.github.io`, version `v1alpha1`. Both kinds are namespaced. A lease references a
-policy in its own namespace, and a policy references an OCM `Placement` in its own namespace. The
-namespace is the tenancy boundary.
+policy in its own namespace, and a policy references an OCM `Placement` in its own namespace. The hub
+namespace scopes which policies, leases and Placements refer to each other. It does not restrict which
+managed-cluster namespace or backend a policy targets; control that with RBAC on
+`fleetaccesspolicies`.
 
 Source of truth: [`api/v1alpha1`](../api/v1alpha1). CRDs: [`config/crd`](../config/crd).
 
@@ -84,7 +86,7 @@ Status:
 | Field | Meaning |
 |---|---|
 | `phase` | `Pending`: no requested cluster is placed yet, or the enforcement rule limit is reached on every cluster. `Active`: rendered on at least one cluster. `Expired`, `Denied`: terminal. A summary of the conditions |
-| `expiresAt` | `creationTimestamp + duration`, computed once, never extended |
+| `expiresAt` | `creationTimestamp` + effective duration. For a lease without `spec.duration`, that is the policy default in effect at first evaluation, pinned here. Policy changes never extend it |
 | `clusters`, `clusterCount` | clusters that hold the grant; after expiry or denial, clusters still being revoked |
 | `conditions` | `Ready`, `Progressing`, `Degraded`, `Expired`, `Denied` |
 
@@ -110,7 +112,8 @@ $ kubectl get tal -o wide      # adds the SUBJECT column
 | `DurationExceedsMaximum` | Denied=True | the duration exceeds `maxDuration` |
 | `LeaseExpired` | Expired=True | past `expiresAt` |
 
-`Denied` and `Expired` are terminal. A policy change that removes a lease's tool or subject denies it.
+`Denied` and `Expired` are terminal, provided only the controller can write
+`toolaccessleases/status`. A policy change that removes a lease's tool or subject denies it.
 A policy change that would allow a previously denied lease does not revive it. `Pending` is not
 terminal: a pending lease activates when a requested cluster is placed or capacity frees up, as long
 as it has not expired.

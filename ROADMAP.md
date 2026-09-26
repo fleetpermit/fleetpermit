@@ -1,7 +1,7 @@
 # Roadmap
 
-FleetPermit v0.1 is a complete, working release for one placement provider (Open Cluster
-Management), one enforcement provider (kube-agentic-networking) and one protocol (MCP). The items
+FleetPermit v0.1 supports one placement provider (Open Cluster Management), one enforcement provider
+(kube-agentic-networking) and one protocol (MCP); the list below shows what it includes. The items
 under Next and Later are enhancements. Their order and timing follow user feedback and upstream
 progress; they are not commitments.
 

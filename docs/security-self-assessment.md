@@ -47,15 +47,16 @@ tool and expiry on every request.
 4. The work agent applies the `XAccessPolicy`. The enforcement controller accepts it and programs Envoy.
 5. A caller connects to the gateway with mTLS. Envoy authenticates the SPIFFE ID and matches the tool
    and `request.time` against the rules. The call is allowed or denied.
-6. At expiry the gateway denies by itself, and the controller replaces the grant with an inert policy.
+6. At expiry the gateway denies by itself, and the controller removes the grant. If no grants remain
+   on that cluster, an inert policy that allows nothing stays in place.
 
 ### Goals
 
 - A lease never grants more than its policy: identities, tools, clusters and duration are subsets.
 - Grants stop at expiry even when the hub or the controller is unavailable.
-- Errors never add authority: a failure withdraws grants or leaves them to expire on time. Backends
-  with no grant are closed when the default-deny anchor is installed; upstream enforces nothing on a
-  target without any `XAccessPolicy`.
+- With the default-deny anchor installed, errors never add authority: a failure withdraws grants or
+  leaves them to expire on time. Without the anchor, upstream enforces nothing on a backend that no
+  `XAccessPolicy` targets.
 - Every delivered rule is traceable to its source policy and lease.
 
 ### Non-goals
@@ -95,8 +96,9 @@ No compliance standards are claimed.
 - All commits and release tags are signed and verified on GitHub.
 - Release images and assets are signed keylessly with Sigstore cosign; see
   [operations.md](operations.md#verifying-releases).
-- CI (`make verify`, `make test`) runs gofmt, vet, `govulncheck`, a secret and personal-data scan,
-  generated-code checks, unit tests with the race detector and envtest integration tests.
+- CI runs `make verify` (gofmt, vet, generated-code and manifest checks, Helm lint, shell syntax, a
+  secret and personal-data scan, license headers), `make vulncheck` (`govulncheck`) and `make test`
+  (unit tests with the race detector and envtest integration tests).
 - GitHub Actions are pinned to commit SHAs. OpenSSF Scorecard runs on every push to `main`.
 - Dependencies are limited to Kubernetes, CNCF and Linux Foundation projects
   ([DEPENDENCIES.md](../DEPENDENCIES.md)). Images are static binaries on `scratch`, running as a

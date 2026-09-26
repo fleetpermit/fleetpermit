@@ -4,7 +4,7 @@
 
 | Where | What |
 |---|---|
-| Hub | Kubernetes ≥ 1.30 with the Open Cluster Management hub (v1.3 tested): `Placement`, `PlacementDecision`, `ManifestWork` APIs |
+| Hub | Kubernetes with the Open Cluster Management hub (v1.3 tested): `Placement`, `PlacementDecision`, `ManifestWork` APIs. Tested on Kubernetes 1.35; the chart accepts 1.30 and later, which is untested. |
 | Each governed managed cluster | OCM klusterlet; Gateway API; kube-agentic-networking (v0.2.0 tested) with a `Gateway` of class `kube-agentic-networking`; the tool server as an `XBackend`; workload identities the gateway trusts |
 
 ## Install
@@ -151,8 +151,9 @@ Set `tracing.otlpEndpoint` (or `OTEL_EXPORTER_OTLP_ENDPOINT`). Spans: `fleetperm
   cluster the hub can reach; [results.md](results.md) shows the measured "Lease deleted → first DENY"
   latency. A cluster the hub cannot reach keeps the grant until it expires.
 - To stop a whole policy in an emergency, delete the `FleetAccessPolicy`. Its finalizer withdraws
-  every grant from every cluster, and every lease that references the policy becomes `Denied` with
-  reason `PolicyNotFound`. Denied is terminal, so recreating the policy does not revive those leases.
+  every grant from every cluster, and every lease of the policy that has not expired becomes `Denied`
+  with reason `PolicyNotFound`. Expired leases stay `Expired`. Denied is terminal, so recreating the
+  policy does not revive those leases.
 - Deleting only the policy's placement also withdraws every grant, and the policy reports
   `Degraded/PlacementNotFound`. Its leases are not denied, though. They go to phase `Pending`
   (`NoEligibleClusters`), and a lease that has not expired is delivered again if the placement comes

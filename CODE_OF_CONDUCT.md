@@ -11,8 +11,14 @@ Be kind. Assume good intent. Critique ideas, not people. Help newcomers.
 
 ## Reporting
 
-If you experience or witness unacceptable behaviour, contact the maintainers listed in
-[GOVERNANCE.md](GOVERNANCE.md) privately through GitHub. If the concern involves a maintainer, contact
-the other maintainers. Reports are handled confidentially. Maintainers who do not follow or enforce
-the code of conduct may face temporary or permanent consequences, as determined by the other
-maintainers.
+If you experience or witness unacceptable behaviour, report it privately through the repository's
+private reporting form: open the Security tab of
+[fleetpermit/fleetpermit](https://github.com/fleetpermit/fleetpermit) and choose "Report a
+vulnerability" ([direct link](https://github.com/fleetpermit/fleetpermit/security/advisories/new)).
+Only the maintainers can see what you submit. Say in the title that it is a conduct report, so it is
+handled as one and not as a security issue. Reports are handled confidentially.
+
+The project has one maintainer today (see [GOVERNANCE.md](GOVERNANCE.md)). If your concern is about
+the maintainer, you can also report the account or the content to GitHub through its own abuse
+reporting. Once there are several maintainers, a maintainer who does not follow or enforce this code
+of conduct may face temporary or permanent consequences, as determined by the others.

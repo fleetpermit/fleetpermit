@@ -26,7 +26,7 @@
 
   <rect width="1200" height="660" rx="20" fill="#0C1728"/>
   <text class="h1" x="40" y="52">Trust boundaries and failure handling</text>
-  <text class="sm" x="40" y="78">Errors never add authority: a failure withdraws grants or leaves them to expire on time.</text>
+  <text class="sm" x="40" y="78">With the default-deny anchor installed, errors never add authority: a failure withdraws grants or leaves them to expire on time.</text>
 
   <!-- Hub zone -->
   <rect class="zone" x="40" y="104" width="400" height="520" rx="16"/>

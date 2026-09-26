@@ -15,10 +15,13 @@ the evidence behind each choice. Each decision says what would make us revisit i
 | Workload identity | SPIFFE IDs, issued in the lab by Kubernetes Pod Certificates | CNCF Graduated (SPIFFE), Kubernetes |
 | Tool protocol | Model Context Protocol | Linux Foundation (Agentic AI Foundation) |
 
-The code has three seams, each an interface with one production implementation:
-`placement.Provider` (OCM), `enforcement.Renderer` (kube-agentic-networking) and the `target.protocol`
-field (MCP). The CRD fields `placement.provider`, `enforcement.provider` and `target.protocol` are
-enums with one value, so a second implementation can be added without changing the API shape.
+The code has two seams, each a Go interface with one implementation: `placement.Provider` (OCM) and
+`enforcement.Renderer` (kube-agentic-networking). The controller wires these two implementations at
+startup ([`cmd/fleetpermit-controller/main.go`](../cmd/fleetpermit-controller/main.go)). The protocol
+is a third seam at the API level. The CRD fields `placement.provider`, `enforcement.provider` and
+`target.protocol` are enums with one value each (`ocm`, `kubernetes-agentic-networking`, `MCP`), so
+a second implementation can be added later without changing the API shape. With one value per field,
+the controller does not need to read them yet.
 
 **Why.** What FleetPermit adds is the combination of fleet placement, tool-level authorization and
 time bounds. Re-implementing either side would add risk and remove the reason to trust the result.
@@ -121,7 +124,7 @@ same reason, and activates when capacity frees up. Leases are never dropped sile
 ## ADR-5: API group `fleetpermit.github.io`
 
 The project does not control `fleetpermit.io` or `fleetpermit.dev`; `fleetpermit.io` was unregistered
-when checked. The project does control the GitHub Pages namespace `fleetpermit.github.io`, so the API
+when checked on 2026-09-26. The project does control the GitHub Pages namespace `fleetpermit.github.io`, so the API
 group, labels and annotations use it. If the project later controls a dedicated domain, a new API
 version can move to it.
 
@@ -142,9 +145,12 @@ version can move to it.
 - ManifestWork and XAccessPolicy names carry a 64-bit hash (16 hex characters) of the policy's
   namespace and name. FleetPermit refuses to modify a ManifestWork owned by another policy
   (`TestForeignManifestWorkIsNotOverwritten`).
-- `Denied` and `Expired` are terminal. A lease denied for asking for `read_secret` does not become
-  active later if someone adds `read_secret` to the policy. A policy that narrows denies the leases it
-  no longer covers at once.
+- `Denied` and `Expired` are terminal, provided only the controller can write
+  `toolaccessleases/status`: the controller reads the recorded conditions back to keep them sticky. A
+  lease denied for asking for `read_secret` does not become active later if someone adds
+  `read_secret` to the policy. A policy that narrows denies the leases it no longer covers at once.
+  Deleting a policy denies its leases that have not expired; expired leases stay `Expired`
+  (`TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted`).
 - A lease without `clusters` follows the placement as it changes, within its expiry. A lease with
   `clusters` only ever intersects them with the placement.
 

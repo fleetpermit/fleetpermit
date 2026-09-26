@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="life-t life-d">
   <title id="life-t">ToolAccessLease lifecycle</title>
-  <desc id="life-d">A new ToolAccessLease is checked against its policy. If the subject, tools or duration violate the policy, it becomes Denied, which is terminal. Otherwise it is Pending until a requested cluster is placed and has room under the upstream rule limit, and it becomes Active once a grant is rendered on at least one selected cluster; the grant is a CEL rule with request.time before the expiry timestamp. At expiresAt the Envoy gateway stops honouring the grant and the lease becomes Expired, which is also terminal, and the controller withdraws the grant. Deleting an Active lease revokes it on every cluster. expiresAt equals creationTimestamp plus duration, is computed once and is never extended.</desc>
+  <desc id="life-d">A new ToolAccessLease is checked against its policy. If the subject, tools or duration violate the policy, it becomes Denied, which is terminal. Otherwise it is Pending until a requested cluster is placed and has room under the upstream rule limit, and it becomes Active once a grant is rendered on at least one selected cluster; the grant is a CEL rule with request.time before the expiry timestamp. At expiresAt the Envoy gateway stops honouring the grant and the lease becomes Expired, which is also terminal, and the controller withdraws the grant. Deleting an Active lease revokes it on every cluster. expiresAt is creationTimestamp plus the effective duration: spec.duration, or for a lease without it the policy default in effect at first evaluation, which is then pinned in status. Policy changes never extend it.</desc>
   <defs>
     <style>
       svg { fill: #E6EDF6; }
@@ -96,6 +96,7 @@
     <text class="xs mono" x="860" y="476" text-anchor="middle">expiresAt 10:15:00Z</text>
     <text class="xs lease" x="580" y="530" text-anchor="middle">duration 10m: leased tools ALLOW</text>
     <text class="xs deny" x="1010" y="530" text-anchor="middle">after expiry: DENY</text>
-    <text class="xs" x="100" y="530">expiresAt is computed once, never extended</text>
+    <text class="xs" x="100" y="530">expiresAt = creationTimestamp + effective duration.</text>
+    <text class="xs" x="100" y="547">Policy changes never extend it.</text>
   </g>
 </svg>

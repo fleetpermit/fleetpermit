@@ -1,7 +1,9 @@
 # Upstream compatibility
 
 FleetPermit composes upstream projects and pins the versions it tests. This page records what is
-used, from where, and how stable it is. It was checked against the upstream sources on 2026-09-26.
+used, from where, and how stable it is. On 2026-09-26 the upstream facts below were checked against
+the source code of the pinned releases, and the foundation and maturity columns against each
+project's own pages.
 
 | Component | Foundation / governance | Version | API used | Purpose | Maturity | Source |
 |---|---|---|---|---|---|---|
@@ -15,7 +17,7 @@ used, from where, and how stable it is. It was checked against the upstream sour
 | Model Context Protocol | Linux Foundation (Agentic AI Foundation) | protocol revision 2025-06-18 (probe); Go SDK v1.8.0 (demo server) | Streamable HTTP, `initialize`, `tools/call` | agent-to-tool protocol | stable spec | https://modelcontextprotocol.io |
 | controller-runtime / controller-tools | Kubernetes SIG API Machinery | v0.25.1 / v0.22.0 | manager, envtest, CRD generation | controller framework | stable | https://github.com/kubernetes-sigs |
 | Prometheus client_golang | CNCF Graduated | v1.24.1 | metrics | observability | stable | https://prometheus.io |
-| OpenTelemetry Go | CNCF Incubating | v1.46.0 | traces over OTLP/HTTP | observability | stable (tracing) | https://opentelemetry.io |
+| OpenTelemetry Go | CNCF Graduated | v1.46.0 | traces over OTLP/HTTP | observability | stable (tracing) | https://opentelemetry.io |
 | Helm | CNCF Graduated | chart apiVersion v2; `hack/install-helm.sh` installs Helm v3.19.0 only when no Helm is installed | packaging | installation | stable | https://helm.sh |
 | MetalLB | CNCF Sandbox | v0.15.3 | IPAddressPool, L2Advertisement | lab only: gateway addresses on kind | stable | https://metallb.io |
 | kind | Kubernetes SIG Testing | v0.32.0 | none | lab only | stable | https://kind.sigs.k8s.io |
