@@ -1,5 +1,11 @@
 {{- define "fleetpermit.name" -}}fleetpermit-controller{{- end -}}
 
+{{- /* Cluster-scoped objects are shared by every release, so their names carry
+the release name unless it is the default "fleetpermit". */ -}}
+{{- define "fleetpermit.clusterName" -}}
+{{- if eq .Release.Name "fleetpermit" -}}fleetpermit-controller{{- else -}}{{ printf "%s-fleetpermit-controller" .Release.Name | trunc 63 | trimSuffix "-" }}{{- end -}}
+{{- end -}}
+
 {{- define "fleetpermit.labels" -}}
 app.kubernetes.io/name: fleetpermit
 app.kubernetes.io/component: controller

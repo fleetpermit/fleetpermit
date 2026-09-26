@@ -16,7 +16,7 @@ latest() {
   local auth=()
   [[ -n "${GITHUB_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
   curl -fsSL ${auth[@]+"${auth[@]}"} "https://api.github.com/repos/$1/releases?per_page=30" \
-    | jq -r '[.[] | select(.prerelease | not) | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))][0]'
+    | jq -er '[.[] | select(.prerelease | not) | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))][0]'
 }
 
 say "Pinned versus latest upstream releases"
@@ -33,7 +33,8 @@ envoyproxy/envoy ${ENVOY_IMAGE##*:}
 metallb/metallb ${METALLB_VERSION}
 EOF2
 
-kan_latest="$(latest kubernetes-sigs/kube-agentic-networking)"
+kan_latest="$(latest kubernetes-sigs/kube-agentic-networking)" \
+  || { echo "could not determine the latest kube-agentic-networking release" >&2; exit 1; }
 dir="${FP_WORK_DIR}/canary/crd"
 mkdir -p "${dir}"
 curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kube-agentic-networking/${kan_latest}/k8s/crds/agentic.networking.x-k8s.io_xaccesspolicies.yaml" \

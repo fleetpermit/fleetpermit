@@ -57,10 +57,10 @@ skipped="$(grep -c -E '^\s+--- SKIP: TestConformance/' "${FP_WORK_DIR}/conforman
 result="PASS"; [[ "${rc}" == 0 ]] || result="FAIL (exit ${rc})"
 grep -E '^\s*--- (PASS|FAIL|SKIP)' "${FP_WORK_DIR}/conformance.log" | sed 's/ (.*//' >"${out}/kube-agentic-networking-${KAN_VERSION}-tests.txt" || true
 note="The upstream MCP backend image referenced by the suite is not published; it was built from the upstream Dockerfile at ${KAN_VERSION}."
-jq -n --arg note "${note}" --arg v "${KAN_VERSION}" --arg t "${target}" --arg r "${result} — ${passed} passed, ${failed} failed, ${skipped} skipped" \
+jq -n --arg note "${note}" --arg v "${KAN_VERSION}" --arg t "${target}" --arg r "${result}: ${passed} passed, ${failed} failed, ${skipped} skipped" \
   --arg d "${started}" --arg c "${cmd}" --argjson p "${passed}" --argjson f "${failed}" --argjson s "${skipped}" \
   --arg k8s "$(kc "${target}" version -o json | jq -r .serverVersion.gitVersion)" '{
-  suites: [{suite: "kube-agentic-networking conformance (upstream, unmodified)", version: $v,
+  suites: [{suite: "kube-agentic-networking conformance", version: $v,
             target: ($t + " (Kubernetes " + $k8s + ", kind)"), result: $r, passed: $p, failed: $f, skipped: $s,
             date: $d, command: $c, note: $note}]
 }' >"${out}/summary.json"

@@ -143,12 +143,12 @@ EOF
     kc "$c" create namespace agentic-net-system --dry-run=client -o yaml | kc "$c" apply -f - >/dev/null
     if [[ ! -f "${ca_file}" ]]; then
       local tmp="${FP_WORK_DIR}/ca-kubeconfig"
-      kubectl --kubeconfig "${FP_KUBECONFIG}" config view --minify --flatten --context "$(ctx "$c")" >"${tmp}"
+      # Both files hold credentials; create them readable by the owner only.
+      (umask 077; kubectl --kubeconfig "${FP_KUBECONFIG}" config view --minify --flatten --context "$(ctx "$c")" >"${tmp}")
       (cd "${FP_WORK_DIR}" && go run "sigs.k8s.io/kube-agentic-networking/cmd/agentic-net-tool@${KAN_VERSION}" \
         make-ca-pool-secret --kubeconfig "${tmp}" --ca-id=v1 --namespace=agentic-net-system --name=agentic-identity-ca-pool) >/dev/null
-      kc "$c" -n agentic-net-system get secret agentic-identity-ca-pool -o json \
-        | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields)' >"${ca_file}"
-      chmod 600 "${ca_file}"
+      (umask 077; kc "$c" -n agentic-net-system get secret agentic-identity-ca-pool -o json \
+        | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields)' >"${ca_file}")
       rm -f "${tmp}"
     else
       kc "$c" apply -f "${ca_file}" >/dev/null

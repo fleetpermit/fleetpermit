@@ -1,0 +1,15 @@
+FleetPermit {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+
+Check the controller:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "fleetpermit.name" . }}
+
+Each managed cluster also needs, once:
+  - config/managed-cluster/work-agent-rbac.yaml, so the OCM work agent may manage XAccessPolicy objects;
+  - config/managed-cluster/default-deny-anchor.yaml for every governed backend, so a backend without
+    grants stays closed (upstream allows every call to a backend that has no XAccessPolicy).
+
+Then create a FleetAccessPolicy that references an OCM Placement in its own namespace, and a
+ToolAccessLease. Samples are in config/samples; the guide is docs/operations.md.
+
+Before a later "helm upgrade", apply the CRDs first, because Helm never upgrades them:
+  kubectl apply --server-side --force-conflicts -f charts/fleetpermit/crds/

@@ -88,7 +88,7 @@ EOF
 )"
   hub -n "${FP_FLEET_NAMESPACE}" get fap malformed >/dev/null 2>&1 && ok=fail
   for want in spiffeID tool failMode placementRef; do grep -q "$want" <<<"$err" || ok=fail; done
-  record S14 "Malformed policy is rejected at admission" "$ok" "rejected with field errors" "$(tr '\n' ' ' <<<"$err" | cut -c1-400)" "$(jq -cn --arg e "$err" '[$e]')"
+  record S14 "Malformed policy is rejected at admission" "$ok" "rejected with field errors" "$(shorten "$(tr '\n' ' ' <<<"$err")" 400)" "$(jq -cn --arg e "$err" '[$e]')"
 }
 
 s4() {
@@ -105,10 +105,13 @@ s1() {
   out="$(wait_decisions "$t0" sre-agent restart_workload 60 cluster-east=ALLOW cluster-west=ALLOW)" || st=fail
   east="$(pick cluster-east "$out")"
   west="$(pick cluster-west "$out")"
-  local te=$(( $(cut -d' ' -f1 <<<"$east") )) tw=$(( $(cut -d' ' -f1 <<<"$west") ))
+  local te tw
+  te=$(( $(cut -d' ' -f1 <<<"$east") ))
+  tw=$(( $(cut -d' ' -f1 <<<"$west") ))
   # Slow activations are kept diagnosable: capture hub and work-agent logs.
   if (( te > 2000 || tw > 2000 )); then
-    local d="${FP_RESULTS_DIR}/diagnostics/S1-$(date -u +%Y%m%dT%H%M%SZ)"
+    local d
+    d="${FP_RESULTS_DIR}/diagnostics/S1-$(date -u +%Y%m%dT%H%M%SZ)"
     mkdir -p "$d"
     hub -n "${FP_SYSTEM_NAMESPACE}" logs deploy/fleetpermit-controller --since=2m >"$d/fleetpermit-controller.log" 2>&1 || true
     for c in cluster-east cluster-west; do
@@ -239,7 +242,7 @@ s7() {
 }
 
 s10() {
-  local st=pass name during restored t0
+  local st=pass name restored t0
   name="$(rendered_policy cluster-west)"
   [[ -n "$name" ]] || { record S10 "Drift: rendered XAccessPolicy deleted on a managed cluster" fail "recreated" "no rendered policy found" "[]"; return; }
   t0=$(now_ms)
@@ -258,16 +261,16 @@ s10() {
 }
 
 s15() {
-  local st=pass decisions="" out i new
+  local st=pass decisions="" out new
   hub -n "${FP_SYSTEM_NAMESPACE}" delete pod -l app.kubernetes.io/name=fleetpermit --wait=false >/dev/null
-  for i in $(seq 1 20); do
+  for _ in $(seq 1 20); do
     out="$(probe sre-agent cluster-east restart_workload)"
     decisions+="$(decision "$out") "
     sleep 0.5
   done
   hub -n "${FP_SYSTEM_NAMESPACE}" rollout status deploy/fleetpermit-controller --timeout=120s >/dev/null || st=fail
   kc cluster-east -n agentic-net-system rollout restart deploy/agentic-net-controller >/dev/null
-  for i in $(seq 1 20); do
+  for _ in $(seq 1 20); do
     out="$(probe sre-agent cluster-east restart_workload)"
     decisions+="$(decision "$out") "
     sleep 0.5
@@ -411,6 +414,7 @@ rbac() {
       *) [[ "$line" == no ]] || st=fail ;;
     esac
   done
+  out="${out%; }"
   record RBAC "Controller ServiceAccount is least-privilege" "$st" "no pods/secrets/RBAC/namespaces/lease updates; yes ManifestWork/PlacementDecision" "$out" "$(jq -cn --arg o "$out" '[$o]')"
 }
 
@@ -447,8 +451,8 @@ main() {
   hub -n "${FP_FLEET_NAMESPACE}" delete toolaccesslease --all --wait=false >/dev/null 2>&1 || true
 
   local finished; finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  local env_desc="local kind clusters on a single development host; not a production benchmark"
-  [[ "${GITHUB_ACTIONS:-}" == true ]] && env_desc="kind clusters on a GitHub-hosted runner; not a production benchmark"
+  local env_desc="Local kind clusters on one development host, not a production benchmark"
+  [[ "${GITHUB_ACTIONS:-}" == true ]] && env_desc="Kind clusters on a GitHub-hosted runner, not a production benchmark"
   local k8s_server; k8s_server="$(kc cluster-east version -o json | jq -r .serverVersion.gitVersion)"
   jq -s --arg started "$STARTED" --arg finished "$finished" --arg k8s "$k8s_server" \
     --arg ocm "${OCM_BUNDLE_VERSION}" --arg kan "${KAN_VERSION}" --arg gw "${GATEWAY_API_VERSION}" \

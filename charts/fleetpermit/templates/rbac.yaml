@@ -18,19 +18,19 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "fleetpermit.name" . }}
+  name: {{ include "fleetpermit.clusterName" . }}
   labels: {{- include "fleetpermit.labels" . | nindent 4 }}
 rules: {{- toYaml $role.rules | nindent 2 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "fleetpermit.name" . }}
+  name: {{ include "fleetpermit.clusterName" . }}
   labels: {{- include "fleetpermit.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "fleetpermit.name" . }}
+  name: {{ include "fleetpermit.clusterName" . }}
 subjects:
   - kind: ServiceAccount
     name: {{ include "fleetpermit.serviceAccountName" . }}
@@ -66,15 +66,15 @@ subjects:
     name: {{ include "fleetpermit.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- with .Values.workExecutor }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-a-z0-9.]*[a-z0-9])?$" .) }}{{ fail "workExecutor must be namespace/name of a ServiceAccount" }}{{ end }}
 {{- $parts := splitList "/" . }}
-{{- if ne (len $parts) 2 }}{{ fail "workExecutor must be namespace/name" }}{{ end }}
 ---
 # OCM admits a ManifestWork with an executor only if its creator may
 # "execute-as" that ServiceAccount; this grants exactly that one identity.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "fleetpermit.name" $ }}-work-executor
+  name: {{ include "fleetpermit.clusterName" $ }}-work-executor
   labels: {{- include "fleetpermit.labels" $ | nindent 4 }}
 rules:
   - apiGroups: ["work.open-cluster-management.io"]
@@ -85,12 +85,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "fleetpermit.name" $ }}-work-executor
+  name: {{ include "fleetpermit.clusterName" $ }}-work-executor
   labels: {{- include "fleetpermit.labels" $ | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "fleetpermit.name" $ }}-work-executor
+  name: {{ include "fleetpermit.clusterName" $ }}-work-executor
 subjects:
   - kind: ServiceAccount
     name: {{ include "fleetpermit.serviceAccountName" $ }}

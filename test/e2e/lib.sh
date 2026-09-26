@@ -68,6 +68,13 @@ probe() {
 
 decision() { jq -r '.decision' <<<"$1"; }
 
+# shorten <text> <max>: cuts text longer than max at a word boundary and marks the cut.
+shorten() {
+  local s="$1" n="$2"
+  if (( ${#s} > n )); then s="${s:0:n}"; s="${s% *} …"; fi
+  printf '%s' "$s"
+}
+
 # wait_decision <agent> <cluster> <tool> <ALLOW|DENY> <timeout-s>
 # Polls with real calls until the decision matches. Prints the elapsed
 # milliseconds and the last probe output; returns non-zero on timeout.

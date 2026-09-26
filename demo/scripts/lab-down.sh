@@ -23,7 +23,7 @@ while read -r name; do
   fi
   if grep -qx "${name}" <<<"${existing}"; then
     say "Deleting kind cluster ${name}"
-    kind delete cluster --name "${name}" >/dev/null 2>&1
+    kind delete cluster --name "${name}" --kubeconfig "${FP_KUBECONFIG}" >/dev/null 2>&1
   fi
 done <"${marker}"
 rm -f "${marker}" "${FP_KUBECONFIG}"

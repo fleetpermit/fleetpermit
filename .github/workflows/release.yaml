@@ -15,6 +15,19 @@ jobs:
       packages: write   # push images to ghcr.io
       id-token: write   # keyless signing
     steps:
+      - name: Wait for the GitHub release
+        # The maintainer creates the release (with its notes) right after pushing the tag; this job
+        # only attaches artifacts. Stop before pushing images if the release never appears.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for _ in $(seq 1 30); do
+            gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 && exit 0
+            sleep 10
+          done
+          echo "no GitHub release named ${GITHUB_REF_NAME}; create it, then re-run this job" >&2
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:

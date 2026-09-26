@@ -20,9 +20,12 @@ leaderElection:
 # Restrict FleetPermit objects to a single namespace. Empty watches all.
 watchNamespace: ""
 
-# Optional: ServiceAccount (namespace/name) on managed clusters that the OCM
-# work agent applies FleetPermit content as. The chart then grants the
-# controller OCM's "execute-as" permission for that ServiceAccount only.
+# Optional: a managed-cluster ServiceAccount (namespace/name). The OCM work
+# agent checks each object FleetPermit delivers against this ServiceAccount's
+# permissions before applying it, and still writes with its own identity. The
+# chart grants the controller OCM's "execute-as" permission for that
+# ServiceAccount only. It limits what a stolen controller credential can
+# deliver only if the hub also enables OCM's NilExecutorValidating feature gate.
 workExecutor: ""
 
 logLevel: info

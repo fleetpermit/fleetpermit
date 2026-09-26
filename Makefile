@@ -92,7 +92,7 @@ verify-helm: ## Lint and render the Helm chart.
 
 .PHONY: verify-scripts
 verify-scripts: ## Syntax-check shell scripts.
-	@for f in $$(find demo hack test -name '*.sh'); do bash -n "$$f"; done
+	@for f in $$(find demo hack test -name '*.sh'); do bash -n "$$f" || exit 1; done
 
 .PHONY: verify-secrets
 verify-secrets: ## Scan tracked files for credentials, personal data and absolute home paths.
