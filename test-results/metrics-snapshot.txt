@@ -32,8 +32,8 @@ fleetpermit_policy_propagation_seconds_bucket{le="34"} 5
 fleetpermit_policy_propagation_seconds_bucket{le="55"} 7
 fleetpermit_policy_propagation_seconds_bucket{le="89"} 7
 fleetpermit_policy_propagation_seconds_bucket{le="+Inf"} 7
-fleetpermit_policy_propagation_seconds_sum 105.377302651
+fleetpermit_policy_propagation_seconds_sum 104.65593018799999
 fleetpermit_policy_propagation_seconds_count 7
 fleetpermit_reconcile_errors_total 0
 fleetpermit_reconcile_total{result="error"} 0
-fleetpermit_reconcile_total{result="success"} 55
+fleetpermit_reconcile_total{result="success"} 62

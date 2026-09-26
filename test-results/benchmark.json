@@ -1,6 +1,6 @@
 {
   "kind": "real-multicluster-benchmark",
-  "generatedAt": "2026-09-26T12:20:04Z",
+  "generatedAt": "2026-09-26T14:15:31Z",
   "environment": {
     "description": "local kind clusters (1 hub + 3 managed) on one development host; not a production benchmark",
     "kubernetes": "v1.35.0",
@@ -10,77 +10,77 @@
     "os": "Darwin",
     "arch": "arm64",
     "ocmStatusSyncInterval": "10s",
-    "method": "host-side real MCP calls via kubectl exec; each latency includes one probe round trip (see probeRoundTripMs)"
+    "method": "host-side real MCP calls via kubectl exec; east and west are polled concurrently from the same start time; each latency includes one probe round trip (see probeRoundTripMs)"
   },
   "samples": {
     "activationToAllowMs": [
-      244,
-      451,
       194,
-      400,
+      194,
       171,
-      359,
-      167,
-      736,
-      182,
-      416,
+      171,
+      186,
+      186,
+      177,
+      567,
+      172,
+      172,
+      185,
+      573,
       190,
-      415,
-      157,
-      374,
-      174,
-      392
+      190,
+      176,
+      565
     ],
     "activationToReadyStatusMs": [
-      599,
-      563,
-      499,
-      875,
-      587,
-      588,
-      520,
-      556
+      405,
+      394,
+      409,
+      769,
+      401,
+      794,
+      395,
+      788
     ],
     "driftRecoveryMs": [
-      9236,
-      8594,
-      9674,
-      13180
+      11441,
+      13710,
+      12161,
+      11551
     ],
     "expiryToDenyMs": [
-      102,
-      12,
-      180
+      205,
+      180,
+      323
     ],
     "probeRoundTripMs": [
-      127,
-      116,
-      114,
       117,
-      115,
-      109,
-      113,
-      104,
+      126,
+      129,
       112,
-      304
+      125,
+      122,
+      112,
+      118,
+      120,
+      116
     ],
     "revocationToDenyMs": [
-      183,
-      390,
+      180,
+      180,
+      175,
+      175,
+      168,
+      581,
+      175,
+      175,
       171,
-      363,
-      160,
-      352,
-      193,
-      418,
-      170,
-      392,
-      170,
-      428,
-      170,
-      394,
-      179,
-      404
+      568,
+      169,
+      169,
+      161,
+      551,
+      183,
+      183
     ]
   }
 }

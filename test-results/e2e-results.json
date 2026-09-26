@@ -12,8 +12,8 @@
       "role": "not listed in any policy; every call must be denied"
     }
   ],
-  "startedAt": "2026-09-26T12:15:24Z",
-  "finishedAt": "2026-09-26T12:18:25Z",
+  "startedAt": "2026-09-26T14:11:01Z",
+  "finishedAt": "2026-09-26T14:13:45Z",
   "environment": {
     "description": "local kind clusters on a single development host; not a production benchmark",
     "hub": 1,
@@ -32,7 +32,7 @@
     "containerEngine": "podman",
     "os": "Darwin",
     "arch": "arm64",
-    "fleetpermitCommit": "9d61ef9"
+    "fleetpermitCommit": "5498c63"
   },
   "summary": {
     "total": 21,
@@ -67,8 +67,8 @@
           "stage": "initialize",
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 6,
-          "timestamp": "2026-09-26T12:15:26.05376982Z"
+          "latencyMs": 4,
+          "timestamp": "2026-09-26T14:11:03.2278638Z"
         }
       ],
       "metrics": {}
@@ -88,8 +88,8 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-east] restart_workload: restart of shop/checkout accepted (simulated)",
-          "latencyMs": 6,
-          "timestamp": "2026-09-26T12:15:32.123996267Z"
+          "latencyMs": 16,
+          "timestamp": "2026-09-26T14:11:03.491841672Z"
         },
         {
           "agent": "sre-agent",
@@ -99,14 +99,14 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
-          "latencyMs": 8,
-          "timestamp": "2026-09-26T12:15:32.337972912Z"
+          "latencyMs": 18,
+          "timestamp": "2026-09-26T14:11:03.494102305Z"
         }
       ],
       "metrics": {
-        "activationToAllowMsEast": 5967,
-        "activationToAllowMsWest": 164,
-        "activationToReadyStatusMs": 20188
+        "activationToAllowMsEast": 218,
+        "activationToAllowMsWest": 221,
+        "activationToReadyStatusMs": 507
       }
     },
     {
@@ -125,7 +125,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:15:46.475685509Z"
+          "timestamp": "2026-09-26T14:11:03.929899215Z"
         }
       ],
       "metrics": {}
@@ -146,7 +146,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:15:46.676552854Z"
+          "timestamp": "2026-09-26T14:11:04.099976206Z"
         },
         {
           "agent": "sre-agent",
@@ -157,7 +157,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:15:46.786915314Z"
+          "timestamp": "2026-09-26T14:11:04.206411674Z"
         }
       ],
       "metrics": {}
@@ -177,8 +177,8 @@
           "stage": "initialize",
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:15:46.937011217Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:11:04.344842009Z"
         }
       ],
       "metrics": {}
@@ -199,7 +199,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:15:47.22373893Z"
+          "timestamp": "2026-09-26T14:11:04.643991133Z"
         }
       ],
       "metrics": {}
@@ -230,8 +230,8 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-east] scale_workload: scale of shop/checkout to 3 accepted (simulated)",
-          "latencyMs": 4,
-          "timestamp": "2026-09-26T12:15:47.848233549Z"
+          "latencyMs": 3,
+          "timestamp": "2026-09-26T14:11:05.25809623Z"
         },
         {
           "agent": "sre-agent",
@@ -241,8 +241,8 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-east] scale_workload: scale of shop/checkout to 1000 accepted (simulated)",
-          "latencyMs": 4,
-          "timestamp": "2026-09-26T12:15:47.944077246Z"
+          "latencyMs": 5,
+          "timestamp": "2026-09-26T14:11:05.381653302Z"
         }
       ],
       "metrics": {}
@@ -263,7 +263,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 2,
-          "timestamp": "2026-09-26T12:15:48.256445806Z"
+          "timestamp": "2026-09-26T14:11:05.720869071Z"
         },
         {
           "agent": "sre-agent",
@@ -274,12 +274,12 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 2,
-          "timestamp": "2026-09-26T12:15:48.447268322Z"
+          "timestamp": "2026-09-26T14:11:05.72107878Z"
         }
       ],
       "metrics": {
-        "revocationToDenyMsEast": 145,
-        "revocationToDenyMsWest": 143
+        "revocationToDenyMsEast": 230,
+        "revocationToDenyMsWest": 231
       }
     },
     {
@@ -287,7 +287,7 @@
       "name": "Lease expiry: ALLOW before, DENY after",
       "status": "pass",
       "expected": "ALLOW then DENY at expiry",
-      "observed": "before=ALLOW, after=DENY 131ms after expiresAt",
+      "observed": "before=ALLOW, after=DENY 32ms after expiresAt",
       "evidence": [
         {
           "agent": "sre-agent",
@@ -297,8 +297,8 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-west] get_cluster_health: healthy (simulated)",
-          "latencyMs": 4,
-          "timestamp": "2026-09-26T12:15:49.213681855Z"
+          "latencyMs": 6,
+          "timestamp": "2026-09-26T14:11:06.591089469Z"
         },
         {
           "agent": "sre-agent",
@@ -309,12 +309,12 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:16:28.131323048Z"
+          "timestamp": "2026-09-26T14:11:46.032127052Z"
         }
       ],
       "metrics": {
-        "expiresAt": "2026-09-26T12:16:28Z",
-        "expiryToDenyMs": 131
+        "expiresAt": "2026-09-26T14:11:46Z",
+        "expiryToDenyMs": 32
       }
     },
     {
@@ -332,8 +332,8 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-west] get_cluster_health: healthy (simulated)",
-          "latencyMs": 4,
-          "timestamp": "2026-09-26T12:15:48.791734254Z"
+          "latencyMs": 6,
+          "timestamp": "2026-09-26T14:11:06.227216194Z"
         },
         {
           "agent": "sre-agent",
@@ -344,7 +344,7 @@
           "httpStatus": 200,
           "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
           "latencyMs": 4,
-          "timestamp": "2026-09-26T12:15:48.986833327Z"
+          "timestamp": "2026-09-26T14:11:06.38409522Z"
         },
         {
           "agent": "sre-agent",
@@ -354,8 +354,8 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
-          "latencyMs": 4,
-          "timestamp": "2026-09-26T12:16:28.325040866Z"
+          "latencyMs": 3,
+          "timestamp": "2026-09-26T14:11:46.216483969Z"
         }
       ],
       "metrics": {}
@@ -375,8 +375,8 @@
           "stage": "initialize",
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 3,
-          "timestamp": "2026-09-26T12:16:29.25895566Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:11:47.116651184Z"
         },
         {
           "agent": "sre-agent",
@@ -387,7 +387,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 2,
-          "timestamp": "2026-09-26T12:16:29.927870198Z"
+          "timestamp": "2026-09-26T14:11:47.839284174Z"
         },
         {
           "agent": "sre-agent",
@@ -397,13 +397,13 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-edge] restart_workload: restart of shop/checkout accepted (simulated)",
-          "latencyMs": 5,
-          "timestamp": "2026-09-26T12:16:30.109592804Z"
+          "latencyMs": 6,
+          "timestamp": "2026-09-26T14:11:47.432299993Z"
         }
       ],
       "metrics": {
-        "labelChangeToDenyMs": 530,
-        "labelChangeToAllowMs": 144
+        "labelChangeToDenyMs": 682,
+        "labelChangeToAllowMs": 275
       }
     },
     {
@@ -411,7 +411,7 @@
       "name": "Drift: rendered XAccessPolicy deleted on a managed cluster",
       "status": "pass",
       "expected": "denied while the grant is missing (anchor), then restored from the hub",
-      "observed": "right after deletion: ALLOW (gateway not yet updated); 2s later: DENY; ALLOW restored 8901ms after deletion",
+      "observed": "right after deletion: ALLOW (gateway not yet updated); 2s later: DENY; ALLOW restored 11231ms after deletion",
       "evidence": [
         {
           "agent": "sre-agent",
@@ -421,8 +421,8 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
-          "latencyMs": 3,
-          "timestamp": "2026-09-26T12:16:31.286247643Z"
+          "latencyMs": 4,
+          "timestamp": "2026-09-26T14:11:49.157343693Z"
         },
         {
           "agent": "sre-agent",
@@ -433,7 +433,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 2,
-          "timestamp": "2026-09-26T12:16:33.41256646Z"
+          "timestamp": "2026-09-26T14:11:51.265367945Z"
         },
         {
           "agent": "sre-agent",
@@ -443,12 +443,12 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
-          "latencyMs": 3,
-          "timestamp": "2026-09-26T12:16:39.965276237Z"
+          "latencyMs": 4,
+          "timestamp": "2026-09-26T14:12:00.148113544Z"
         }
       ],
       "metrics": {
-        "driftRecoveryMs": 8901
+        "driftRecoveryMs": 11231
       }
     },
     {
@@ -467,7 +467,7 @@
           "httpStatus": 200,
           "detail": "[cluster-east] get_cluster_health: healthy (simulated)",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:17:05.273549548Z"
+          "timestamp": "2026-09-26T14:12:25.438708259Z"
         }
       ],
       "metrics": {}
@@ -477,7 +477,7 @@
       "name": "Hub disconnected before expiry: managed clusters stop honouring the lease on time",
       "status": "pass",
       "expected": "DENY at expiry on east and west with the hub unreachable",
-      "observed": "DENY 139ms (east) / 304ms (west) after expiresAt; rendered policy still present on east (xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779b9dca599), so the denial came from the data-plane time bound",
+      "observed": "DENY 93ms (east) / 94ms (west) after expiresAt; rendered policy still present on east (xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779b9dca599), so the denial came from the data-plane time bound",
       "evidence": [
         {
           "agent": "sre-agent",
@@ -488,7 +488,7 @@
           "httpStatus": 200,
           "detail": "[cluster-east] restart_workload: restart of shop/checkout accepted (simulated)",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:17:10.196517892Z"
+          "timestamp": "2026-09-26T14:12:30.375509497Z"
         },
         {
           "agent": "sre-agent",
@@ -499,7 +499,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:17:56.139745699Z"
+          "timestamp": "2026-09-26T14:13:16.093937274Z"
         },
         {
           "agent": "sre-agent",
@@ -510,12 +510,12 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 4,
-          "timestamp": "2026-09-26T12:17:56.304513741Z"
+          "timestamp": "2026-09-26T14:13:16.094436442Z"
         }
       ],
       "metrics": {
-        "expiryToDenyMsEast": 139,
-        "expiryToDenyMsWest": 304,
+        "expiryToDenyMsEast": 93,
+        "expiryToDenyMsWest": 94,
         "hubReachable": false
       }
     },
@@ -524,7 +524,7 @@
       "name": "Reconnection: hub marks the lease Expired and withdraws stale grants",
       "status": "pass",
       "expected": "lease Expired, rendered policies removed, calls stay DENY",
-      "observed": "converged 523ms after the hub resumed",
+      "observed": "converged 478ms after the hub resumed",
       "evidence": [
         {
           "agent": "sre-agent",
@@ -534,8 +534,8 @@
           "stage": "initialize",
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:17:57.174802043Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:16.935686306Z"
         },
         {
           "agent": "sre-agent",
@@ -546,11 +546,11 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 2,
-          "timestamp": "2026-09-26T12:17:57.282071991Z"
+          "timestamp": "2026-09-26T14:13:17.024328218Z"
         }
       ],
       "metrics": {
-        "reconnectConvergenceMs": 523
+        "reconnectConvergenceMs": 478
       }
     },
     {
@@ -570,8 +570,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "[cluster-east] get_cluster_health: healthy (simulated)",
-          "latencyMs": 4,
-          "timestamp": "2026-09-26T12:17:57.843882206Z"
+          "latencyMs": 3,
+          "timestamp": "2026-09-26T14:13:17.550183914Z"
         },
         {
           "agent": "sre-agent",
@@ -584,7 +584,7 @@
           "httpStatus": 200,
           "detail": "[cluster-east] restart_workload: restart of shop/checkout accepted (simulated)",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:17:57.960980442Z"
+          "timestamp": "2026-09-26T14:13:17.656319473Z"
         },
         {
           "agent": "sre-agent",
@@ -596,8 +596,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:17:58.066234175Z"
+          "latencyMs": 5,
+          "timestamp": "2026-09-26T14:13:17.793107021Z"
         },
         {
           "agent": "sre-agent",
@@ -609,8 +609,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 3,
-          "timestamp": "2026-09-26T12:17:58.179636355Z"
+          "latencyMs": 4,
+          "timestamp": "2026-09-26T14:13:17.922353041Z"
         },
         {
           "agent": "sre-agent",
@@ -623,7 +623,7 @@
           "httpStatus": 200,
           "detail": "[cluster-west] get_cluster_health: healthy (simulated)",
           "latencyMs": 4,
-          "timestamp": "2026-09-26T12:17:58.29090886Z"
+          "timestamp": "2026-09-26T14:13:18.043143822Z"
         },
         {
           "agent": "sre-agent",
@@ -635,8 +635,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
-          "latencyMs": 3,
-          "timestamp": "2026-09-26T12:17:58.414343162Z"
+          "latencyMs": 4,
+          "timestamp": "2026-09-26T14:13:18.157098202Z"
         },
         {
           "agent": "sre-agent",
@@ -648,8 +648,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 3,
-          "timestamp": "2026-09-26T12:17:58.531785233Z"
+          "latencyMs": 4,
+          "timestamp": "2026-09-26T14:13:18.264546141Z"
         },
         {
           "agent": "sre-agent",
@@ -662,7 +662,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:17:58.655421243Z"
+          "timestamp": "2026-09-26T14:13:18.377514934Z"
         },
         {
           "agent": "sre-agent",
@@ -675,7 +675,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 3,
-          "timestamp": "2026-09-26T12:17:58.768766673Z"
+          "timestamp": "2026-09-26T14:13:18.49077077Z"
         },
         {
           "agent": "sre-agent",
@@ -687,8 +687,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:58.877532628Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:18.601613597Z"
         },
         {
           "agent": "sre-agent",
@@ -700,8 +700,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:58.992837273Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:18.709800748Z"
         },
         {
           "agent": "sre-agent",
@@ -713,8 +713,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:59.108149003Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:18.821374077Z"
         },
         {
           "agent": "security-agent",
@@ -726,8 +726,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:59.220291636Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:18.937594674Z"
         },
         {
           "agent": "security-agent",
@@ -740,7 +740,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:59.33096489Z"
+          "timestamp": "2026-09-26T14:13:19.029669806Z"
         },
         {
           "agent": "security-agent",
@@ -752,8 +752,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:59.451619347Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:19.16348126Z"
         },
         {
           "agent": "security-agent",
@@ -766,7 +766,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:59.549299426Z"
+          "timestamp": "2026-09-26T14:13:19.299924265Z"
         },
         {
           "agent": "security-agent",
@@ -778,8 +778,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:59.658195589Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:19.402989647Z"
         },
         {
           "agent": "security-agent",
@@ -792,7 +792,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:59.767119711Z"
+          "timestamp": "2026-09-26T14:13:19.513777473Z"
         },
         {
           "agent": "security-agent",
@@ -804,8 +804,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:59.876187125Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:19.626648474Z"
         },
         {
           "agent": "security-agent",
@@ -818,7 +818,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:17:59.986671961Z"
+          "timestamp": "2026-09-26T14:13:19.745038913Z"
         },
         {
           "agent": "security-agent",
@@ -830,8 +830,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:00.108079046Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:19.846223745Z"
         },
         {
           "agent": "security-agent",
@@ -844,7 +844,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:00.212820027Z"
+          "timestamp": "2026-09-26T14:13:19.958792162Z"
         },
         {
           "agent": "security-agent",
@@ -857,7 +857,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:00.310975149Z"
+          "timestamp": "2026-09-26T14:13:20.067509273Z"
         },
         {
           "agent": "security-agent",
@@ -870,7 +870,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:00.417987139Z"
+          "timestamp": "2026-09-26T14:13:20.16988336Z"
         },
         {
           "agent": "sre-agent",
@@ -882,8 +882,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 3,
-          "timestamp": "2026-09-26T12:18:21.521357496Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:41.741256743Z"
         },
         {
           "agent": "sre-agent",
@@ -895,8 +895,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:18:21.646127136Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:41.846527216Z"
         },
         {
           "agent": "sre-agent",
@@ -908,8 +908,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:21.766101341Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:41.98267447Z"
         },
         {
           "agent": "sre-agent",
@@ -921,8 +921,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:18:21.879622022Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:42.096850309Z"
         },
         {
           "agent": "sre-agent",
@@ -934,8 +934,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 3,
-          "timestamp": "2026-09-26T12:18:21.995336127Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:42.205446336Z"
         },
         {
           "agent": "sre-agent",
@@ -947,8 +947,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:18:22.106170673Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:42.310967977Z"
         },
         {
           "agent": "sre-agent",
@@ -961,7 +961,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:22.214660293Z"
+          "timestamp": "2026-09-26T14:13:42.41397715Z"
         },
         {
           "agent": "sre-agent",
@@ -973,8 +973,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:18:22.323547081Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:42.533326175Z"
         },
         {
           "agent": "sre-agent",
@@ -986,8 +986,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:18:22.443808912Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:42.652295865Z"
         },
         {
           "agent": "sre-agent",
@@ -999,8 +999,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:18:22.557556011Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:42.766527538Z"
         },
         {
           "agent": "sre-agent",
@@ -1013,7 +1013,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:22.675066956Z"
+          "timestamp": "2026-09-26T14:13:42.870913674Z"
         },
         {
           "agent": "sre-agent",
@@ -1026,7 +1026,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:22.788770846Z"
+          "timestamp": "2026-09-26T14:13:42.974913559Z"
         },
         {
           "agent": "security-agent",
@@ -1038,8 +1038,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 3,
-          "timestamp": "2026-09-26T12:18:22.907827089Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:43.079125362Z"
         },
         {
           "agent": "security-agent",
@@ -1052,7 +1052,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:23.018953803Z"
+          "timestamp": "2026-09-26T14:13:43.189683313Z"
         },
         {
           "agent": "security-agent",
@@ -1065,7 +1065,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:23.133699738Z"
+          "timestamp": "2026-09-26T14:13:43.296372207Z"
         },
         {
           "agent": "security-agent",
@@ -1077,8 +1077,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:18:23.240407476Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:43.402644309Z"
         },
         {
           "agent": "security-agent",
@@ -1090,8 +1090,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:18:23.360208764Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:43.504885896Z"
         },
         {
           "agent": "security-agent",
@@ -1104,7 +1104,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:23.488149749Z"
+          "timestamp": "2026-09-26T14:13:43.614350718Z"
         },
         {
           "agent": "security-agent",
@@ -1116,8 +1116,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:23.597338497Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:43.724903835Z"
         },
         {
           "agent": "security-agent",
@@ -1129,8 +1129,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 2,
-          "timestamp": "2026-09-26T12:18:23.710642344Z"
+          "latencyMs": 1,
+          "timestamp": "2026-09-26T14:13:43.828533427Z"
         },
         {
           "agent": "security-agent",
@@ -1142,8 +1142,8 @@
           "match": true,
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
-          "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:23.829546503Z"
+          "latencyMs": 2,
+          "timestamp": "2026-09-26T14:13:43.933961151Z"
         },
         {
           "agent": "security-agent",
@@ -1156,7 +1156,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:23.945866903Z"
+          "timestamp": "2026-09-26T14:13:44.04592094Z"
         },
         {
           "agent": "security-agent",
@@ -1169,7 +1169,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:24.063203973Z"
+          "timestamp": "2026-09-26T14:13:44.15672185Z"
         },
         {
           "agent": "security-agent",
@@ -1182,7 +1182,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:24.177381198Z"
+          "timestamp": "2026-09-26T14:13:44.265741962Z"
         }
       ],
       "metrics": {
@@ -1205,8 +1205,8 @@
           "stage": "tools/call",
           "httpStatus": 200,
           "detail": "[cluster-edge] read_secret: shop/db-password = fake-demo-value",
-          "latencyMs": 7,
-          "timestamp": "2026-09-26T12:18:24.517918281Z"
+          "latencyMs": 5,
+          "timestamp": "2026-09-26T14:13:44.560813721Z"
         },
         {
           "agent": "sre-agent",
@@ -1217,7 +1217,7 @@
           "httpStatus": 200,
           "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
           "latencyMs": 1,
-          "timestamp": "2026-09-26T12:18:24.961013587Z"
+          "timestamp": "2026-09-26T14:13:44.958700818Z"
         }
       ],
       "metrics": {}

@@ -264,7 +264,7 @@ calls through the lab's gateways returned.
 Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM v1.3.1, kube-agentic-networking v0.2.0, Darwin/arm64, 2026-09-26):
 
 - **20 of 21 scenarios passed**, 0 failed, 1 not supported by the upstream API (argument-level matching).
-- **Reproduced independently** on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36241659987)).
+- **Reproduced** on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36241659987)).
 - **Decision matrix: 48 of 48 real MCP calls matched the expected outcome.**
 
 #### Test agents and expected outcomes
@@ -291,19 +291,19 @@ After the lease expires, the same 24 calls are repeated. Expected: all DENY. Obs
 
 | Measured on real clusters | n | p50 | p95 |
 |---|---|---|---|
-| Lease created → first ALLOW at the gateway | 18 | 244 ms | 5967 ms |
-| Lease deleted → first DENY at the gateway | 18 | 183 ms | 428 ms |
-| Lease expiry → first DENY (hub connected) | 4 | 102 ms | 180 ms |
-| Lease expiry → first DENY (hub disconnected) | 2 | 139 ms | 304 ms |
-| Rendered policy deleted on a cluster → restored | 5 | 9236 ms | 13180 ms |
-| Lease created → lease reports Ready (includes OCM status sync) | 9 | 587 ms | 20188 ms |
-| Probe round trip (measurement baseline) | 10 | 114 ms | 304 ms |
+| Lease created → first ALLOW at the gateway | 18 | 186 ms | 573 ms |
+| Lease deleted → first DENY at the gateway | 18 | 175 ms | 581 ms |
+| Lease expiry → first DENY (hub connected) | 4 | 180 ms | 323 ms |
+| Lease expiry → first DENY (hub disconnected) | 2 | 93 ms | 94 ms |
+| Rendered policy deleted on a cluster → restored | 5 | 11551 ms | 13710 ms |
+| Lease created → lease reports Ready (includes OCM status sync) | 9 | 409 ms | 794 ms |
+| Probe round trip (measurement baseline) | 10 | 118 ms | 129 ms |
 
-Simulated controller scale (envtest, no real clusters): a lease reached 100 logical clusters' ManifestWorks in 170 ms and was withdrawn in 215 ms.
+Simulated controller scale (envtest, no real clusters): a lease reached 100 logical clusters' ManifestWorks in 255 ms and was withdrawn in 226 ms.
 
 Upstream conformance, run unmodified against a lab cluster: kube-agentic-networking conformance (upstream, unmodified) v0.2.0: **PASS — 6 passed, 0 failed, 3 skipped**.
 
-Statement coverage of `internal/` (unit + integration): **90.7%**.
+Statement coverage of `internal/` (unit + integration): **91.8%**.
 <!-- results:end -->
 
 Full tables, raw evidence and methodology are in [docs/results.md](docs/results.md). All numbers come

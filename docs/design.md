@@ -177,11 +177,20 @@ no optimistic lock: it owns those fields, and the work agent owns status. Any de
 retried after 1 second. The regression test `TestDeliveryIsNotBlockedByConcurrentStatusWrites`
 rewrites status every 10 ms while a lease is created, and requires delivery within 3 seconds.
 
-**Result.** The switch to merge patches removed the `Update` conflicts. A first-activation delay of
-several seconds still occurs in some runs; it shows as the p95 of "Lease created → first ALLOW" in
-[results.md](results.md). Hub and work-agent logs captured during slow activations place the delay
-inside OCM's delivery of the ManifestWork change to one work agent, after FleetPermit has written it.
-This is an open investigation.
+**Result.** The switch to merge patches removed the `Update` conflicts, but slow first activations
+continued after controller restarts. The logs the suite captures for slow activations showed the
+cause: a new controller pod started while the old one still held the leader-election lease, and it
+reconciled nothing until that lease expired (15 s by default in controller-runtime). Both work agents
+then applied the change at the same moment. The suite used to poll east and then west, so the second
+cluster looked fast and the delay looked like it belonged to one work agent inside OCM. That reading
+was wrong. See ADR-10 for the fix.
+
+## ADR-10: Release leadership on shutdown
+
+**Decision.** The controller sets controller-runtime's `LeaderElectionReleaseOnCancel`, so a stopping
+leader releases the lease and its replacement takes over without waiting for the lease to expire.
+This is safe because the process exits as soon as the manager stops. The end-to-end suite and the
+benchmark now poll all clusters at the same time from one start time.
 
 ## Outside the v0.1 scope
 

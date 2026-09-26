@@ -378,10 +378,8 @@ func markdown(out map[string]any) string {
 		w("- Ready status includes OCM status feedback, so it depends on the same interval.\n")
 		if e2e, ok := out["e2e"].(map[string]any); ok {
 			if east, west, ok := s1Activation(e2e); ok && math.Max(east, west) > 2000 {
-				w("- Open issue: in this run the first lease reached cluster-east after %.0f ms and cluster-west after %.0f ms. "+
-					"The suite saves hub and work-agent logs whenever an activation takes longer than 2 s. One cause found this way, a new "+
-					"controller pod waiting for the previous pod's leader-election lease to expire, is fixed (the leader now steps down on "+
-					"shutdown). Other slow first activations are still being investigated.\n", east, west)
+				w("- Slow first activation in this run: cluster-east %.0f ms, cluster-west %.0f ms. The suite saves hub and "+
+					"work-agent logs whenever an activation takes longer than 2 s.\n", east, west)
 			}
 		}
 		w("\n")

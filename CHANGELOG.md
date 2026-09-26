@@ -32,12 +32,13 @@ All notable changes to this project are documented here. The format follows
 - Lease durations below 10 s are rejected at admission.
 - ManifestWork changes are now merge patches without an optimistic lock, so they no longer conflict
   with the OCM work agent's continuous status writes. Delivery failures are retried after 1 second.
-  This removed the `Update` conflicts that delayed some activations. A first-activation delay of
-  several seconds still occurs in some runs; diagnostics place it inside OCM's delivery of the
-  change to one work agent, and it is an open investigation.
+  This removed the `Update` conflicts that delayed some activations.
 - After a restart or rolling update, the new controller pod waited for the old pod's leader-election
   lease to expire before reconciling anything, which delayed the first lease after a restart by
-  several seconds. The leader now releases the lease when it shuts down.
+  several seconds. The leader now releases the lease when it shuts down. This was the cause of the
+  slow first activations seen in earlier lab runs, which had been attributed to OCM delivery.
+- The end-to-end suite and benchmark polled east and then west, so the second cluster's latency was
+  measured only after the first had finished. All clusters are now polled at the same time.
 - A lease that had already expired became `Denied` (with both `Expired` and `Denied` true) when its
   policy was deleted. The first terminal state recorded now stays: an expired lease stays `Expired`.
 
