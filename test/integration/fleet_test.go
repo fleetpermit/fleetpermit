@@ -350,10 +350,14 @@ func TestLeaseLifecycleAcrossFleet(t *testing.T) {
 		}
 		return nil
 	})
-	final := getLease(t, l)
-	if len(final.Status.Clusters) != 0 || meta.IsStatusConditionTrue(final.Status.Conditions, fpv1.ConditionProgressing) {
-		t.Fatalf("revocation not complete: %+v", final.Status)
-	}
+	eventually(t, 10*time.Second, "revocation to be reported complete", func() error {
+		ackWorks(t)
+		final := getLease(t, l)
+		if len(final.Status.Clusters) != 0 || meta.IsStatusConditionTrue(final.Status.Conditions, fpv1.ConditionProgressing) {
+			return fmt.Errorf("revocation not complete: %+v", final.Status)
+		}
+		return nil
+	})
 }
 
 func TestLeaseEscalationsAreDenied(t *testing.T) {

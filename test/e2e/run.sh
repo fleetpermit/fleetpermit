@@ -20,6 +20,8 @@ rm -rf "${RUN_DIR}" && mkdir -p "${RUN_DIR}" "${FP_RESULTS_DIR}"
 JSONL="${RUN_DIR}/scenarios.jsonl"
 : >"${JSONL}"
 STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# The commit whose build is under test, captured before any scenario runs.
+FP_COMMIT="$(git -C "${FP_ROOT}" describe --always --dirty --exclude '*' 2>/dev/null || echo unknown)"
 HUB_PAUSED=0
 
 cleanup() {
@@ -380,7 +382,7 @@ main() {
     --arg ocm "${OCM_BUNDLE_VERSION}" --arg kan "${KAN_VERSION}" --arg gw "${GATEWAY_API_VERSION}" \
     --arg envoy "${ENVOY_IMAGE##*:}" --arg arch "$(uname -m)" --arg os "$(uname -s)" \
     --arg engine "${CONTAINER_ENGINE}" --arg kind "$(kind version | awk '{print $2}')" \
-    --arg fp "$(git -C "${FP_ROOT}" describe --always --dirty --exclude '*' 2>/dev/null || echo unknown)" \
+    --arg fp "${FP_COMMIT}" \
     --arg clusters "${FP_MANAGED_CLUSTERS}" '{
       kind: "real-multicluster-e2e",
       startedAt: $started, finishedAt: $finished,

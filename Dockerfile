@@ -5,7 +5,7 @@
 #   CMD=cmd/fleetpermit-controller  -> fleetpermit-controller (default)
 #   CMD=demo/tools/mcp-server       -> demo-mcp-tools
 #   CMD=demo/tools/probe            -> demo-probe
-ARG GO_IMAGE=docker.io/library/golang:1.26
+ARG GO_IMAGE=docker.io/library/golang:1.26.8
 FROM --platform=${BUILDPLATFORM} ${GO_IMAGE} AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
