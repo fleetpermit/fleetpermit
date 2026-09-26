@@ -190,6 +190,39 @@ make test-e2e    # every scenario below, with evidence written to test-results/
 make demo-down   # removes only the clusters this lab created
 ```
 
+### The two test agents
+
+The demo and the tests use two agents, `sre-agent` and `security-agent`. They are **not** third-party
+agents, AI models or separate projects, and they have no repositories of their own. Both are ordinary
+pods that the lab creates in the `agents` namespace on `cluster-east`. Both run the same small test
+client from this repository ([`demo/tools/probe`](demo/tools/probe/main.go)). Each run of the client
+makes one MCP call (`initialize`, then `tools/call`) over mTLS to one cluster's gateway and records
+the answer. The only difference between the two agents is their identity.
+
+| Agent | Identity (SPIFFE ID from Kubernetes Pod Certificates) | Role in the demo policy | Expected result |
+|---|---|---|---|
+| `sre-agent` | `spiffe://cluster.local/ns/agents/sa/sre-agent` | listed as a subject of `sre-remediation`, so it can hold leases | ALLOW only on cluster-east and cluster-west, only for the leased tools, and only while the lease is active; DENY otherwise |
+| `security-agent` | `spiffe://cluster.local/ns/agents/sa/security-agent` | trusted by the gateways but listed in no policy | DENY for every call, on every cluster |
+
+Where to look:
+- [`demo/tools/probe/main.go`](demo/tools/probe/main.go): the test client both agents run
+- [`demo/scripts/render-agents.sh`](demo/scripts/render-agents.sh): how the two pods and their identities are created
+- [`demo/tools/mcp-server/main.go`](demo/tools/mcp-server/main.go): the MCP tool server they call
+- [`test/e2e/run.sh`](test/e2e/run.sh): the scenarios that drive them, including the 48-call decision matrix
+- [`config/samples/fleetaccesspolicy.yaml`](config/samples/fleetaccesspolicy.yaml): a policy that lists `sre-agent`
+
+**Using your own agent.** Any agent works the same way, whatever its framework or language;
+FleetPermit never sees the agent's code. The agent needs three things:
+1. a SPIFFE X.509 identity that the gateways trust. In the lab the cluster issues it. Across
+   organisations, use a federated trust domain, for example with SPIRE.
+2. network access to a cluster's gateway
+3. a listing as a subject in a `FleetAccessPolicy`, and an active lease
+
+An agent without a trusted certificate is rejected during the TLS handshake, before any MCP message
+is read. An agent with a trusted but unlisted identity is denied, exactly like `security-agent`. The
+upstream [quickstart](https://github.com/kubernetes-sigs/kube-agentic-networking/tree/v0.2.0/site-src/guides/quickstart)
+("Bring your own agent") shows how to give an existing agent an identity and route it through the gateway.
+
 Recordings of real runs: [demo/recordings](demo/recordings) (asciinema) and MP4s on the [website](https://fleetpermit.github.io/demo.html).
 
 ## Measured results
@@ -210,7 +243,7 @@ Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM
 
 #### Test agents and expected outcomes
 
-Two workload identities make every call. Their SPIFFE X.509 certificates come from Kubernetes Pod Certificates:
+Two workload identities make every call. Both are test clients from this repository, not third-party or AI agents ([what they are](#the-two-test-agents)). Their SPIFFE X.509 certificates come from Kubernetes Pod Certificates:
 
 - **`sre-agent`** (`spiffe://cluster.local/ns/agents/sa/sre-agent`): listed as a subject of policy sre-remediation; receives leases
 - **`security-agent`** (`spiffe://cluster.local/ns/agents/sa/security-agent`): not listed in any policy; every call must be denied

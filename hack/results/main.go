@@ -536,7 +536,7 @@ func updateReadme(path string, out map[string]any) error {
 		}
 		if calls, matched, ok := matrixSummary(e2e); ok {
 			fmt.Fprintf(&r, "- **Decision matrix: %s of %s real MCP calls matched the expected outcome.**\n", matched, calls)
-			fmt.Fprintf(&r, "\n#### Test agents and expected outcomes\n\nTwo workload identities make every call. Their SPIFFE X.509 certificates come from Kubernetes Pod Certificates:\n\n%s", agentsMarkdown(e2e))
+			fmt.Fprintf(&r, "\n#### Test agents and expected outcomes\n\nTwo workload identities make every call. Both are test clients from this repository, not third-party or AI agents ([what they are](#the-two-test-agents)). Their SPIFFE X.509 certificates come from Kubernetes Pod Certificates:\n\n%s", agentsMarkdown(e2e))
 			fmt.Fprintf(&r, "\nThe lease grants `get_cluster_health` and `restart_workload` to `sre-agent`, on the clusters the placement selects (env=production: east and west). Each cell below is a real call through that cluster's gateway, showing the observed decision (✅/⛔ = matched the expectation, ❌ = did not):\n")
 			r.WriteString(matrixMarkdown(e2e, "active"))
 			r.WriteString("\nAfter the lease expires, the same 24 calls are repeated. Expected: all DENY. ")

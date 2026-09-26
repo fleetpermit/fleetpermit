@@ -44,7 +44,12 @@ made the call, is kept as evidence in `test-results/e2e-results.json`.
 (`spiffe://cluster.local/ns/agents/sa/sre-agent`), the policy's only subject, and `security-agent`
 (`spiffe://cluster.local/ns/agents/sa/security-agent`), which no policy lists and which must always be
 denied. Both get X.509 SVIDs from Kubernetes Pod Certificates. They are ordinary pods running the
-deterministic probe (`demo/tools/probe`), not AI models, so every run is reproducible without API keys. The lab and the runner only ever use the kubeconfig in
+deterministic probe (`demo/tools/probe`), not AI models, so every run is reproducible without API keys.
+They are not separate projects and have no repositories of their own. Sources:
+[`demo/tools/probe/main.go`](../demo/tools/probe/main.go) (the client),
+[`demo/scripts/render-agents.sh`](../demo/scripts/render-agents.sh) (the pods and identities) and
+[`test/e2e/run.sh`](../test/e2e/run.sh) (the scenarios). See the README section
+["The two test agents"](../README.md#the-two-test-agents), which also explains how to connect your own agent. The lab and the runner only ever use the kubeconfig in
 `.work/lab/kubeconfig` and contexts named `kind-fleetpermit-*`. They never touch your current
 kubectl context.
 
