@@ -283,7 +283,7 @@ calls through the lab's gateways returned.
 Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM v1.3.1, kube-agentic-networking v0.2.0, Darwin/arm64, 2026-09-26):
 
 - **20 of 21 scenarios passed**, 0 failed, 1 not supported by the upstream API (argument-level matching).
-- **Reproduced** at commit dad8c38 on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36248040097)).
+- **Reproduced** at commit 52d8bf7 on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36252665892)).
 - **Decision matrix: 48 of 48 real MCP calls matched the expected outcome.**
 
 #### Test agents and expected outcomes
@@ -293,7 +293,7 @@ Two workload identities make every call. Both are test clients from this reposit
 - **`sre-agent`** (`spiffe://cluster.local/ns/agents/sa/sre-agent`): listed as a subject of policy sre-remediation; receives leases
 - **`security-agent`** (`spiffe://cluster.local/ns/agents/sa/security-agent`): not listed in any policy; every call must be denied
 
-The lease grants `get_cluster_health` and `restart_workload` to `sre-agent`, on the clusters the placement selects (env=production: east and west). Each cell below is a real call through that cluster's gateway, showing the observed decision (✅/⛔ = matched the expectation, ❌ = did not):
+The lease grants `get_cluster_health` and `restart_workload` to `sre-agent`, on the clusters the placement selects (cluster-east and cluster-west). Each cell below is a real call through that cluster's gateway, showing the observed decision (✅/⛔ = matched the expectation, ❌ = did not):
 
 **Lease active**
 
@@ -310,19 +310,20 @@ After the lease expires, the same 24 calls are repeated. Expected: all DENY. Obs
 
 | Measured on real clusters | n | p50 | p95 |
 |---|---|---|---|
-| Lease created → first ALLOW at the gateway | 18 | 186 ms | 573 ms |
-| Lease deleted → first DENY at the gateway | 18 | 175 ms | 581 ms |
-| Lease expiry → first DENY (hub connected) | 4 | 180 ms | 323 ms |
-| Lease expiry → first DENY (hub disconnected) | 2 | 93 ms | 94 ms |
-| Rendered policy deleted on a cluster → restored | 5 | 11551 ms | 13710 ms |
-| Lease created → lease reports Ready (includes OCM status sync) | 9 | 409 ms | 794 ms |
-| Probe round trip (measurement baseline) | 10 | 118 ms | 129 ms |
+| Lease created → first ALLOW at the gateway | 18 | 184 ms | 588 ms |
+| Lease deleted → first DENY at the gateway | 18 | 168 ms | 572 ms |
+| Lease expiry → first DENY (hub connected) | 4 | 131 ms | 207 ms |
+| Lease expiry → first DENY (hub disconnected) | 2 | 319 ms | 319 ms |
+| Rendered policy deleted on a cluster → object restored | 4 | 9908 ms | 13255 ms |
+| Rendered policy deleted on a cluster → calls allowed again | 1 | 10011 ms | 10011 ms |
+| Lease created → lease reports Ready (includes OCM status sync) | 9 | 422 ms | 811 ms |
+| Probe round trip (measurement baseline) | 10 | 117 ms | 132 ms |
 
-Simulated controller scale (envtest, no real clusters): a lease reached 100 logical clusters' ManifestWorks in 255 ms and was withdrawn in 226 ms.
+Simulated controller scale (envtest, no real clusters): a lease reached 100 logical clusters' ManifestWorks in 180 ms and was withdrawn in 222 ms.
 
 Upstream conformance, run unmodified against a lab cluster: kube-agentic-networking conformance (upstream, unmodified) v0.2.0: **PASS — 6 passed, 0 failed, 3 skipped**.
 
-Statement coverage of `internal/` (unit + integration): **91.8%**.
+Statement coverage of `internal/` (unit + integration): **92.8%**.
 <!-- results:end -->
 
 Full tables, raw evidence and methodology are in [docs/results.md](docs/results.md). All numbers come

@@ -7,40 +7,40 @@
     "note": "activation = lease created until every cluster's ManifestWork carries the grant; ready = until the lease reports Ready after simulated acknowledgement; revocation = lease deleted until no ManifestWork carries it",
     "pollIntervalMs": 10
   },
-  "generatedAt": "2026-09-26T14:16:08Z",
+  "generatedAt": "2026-09-26T15:48:30Z",
   "kind": "simulated-controller-scale",
   "rows": [
     {
       "clusters": 10,
-      "activationMs": 102,
+      "activationMs": 104,
       "readyMs": 206,
-      "revocationMs": 30,
-      "reconciles": 10,
-      "reconcilesPerSecond": 42.29353617313282
+      "revocationMs": 100,
+      "reconciles": 14,
+      "reconcilesPerSecond": 45.612201214303006
     },
     {
       "clusters": 25,
-      "activationMs": 103,
-      "readyMs": 207,
+      "activationMs": 105,
+      "readyMs": 210,
       "revocationMs": 97,
       "reconciles": 24,
-      "reconcilesPerSecond": 78.6521854753422
+      "reconcilesPerSecond": 78.02978055343434
     },
     {
       "clusters": 50,
-      "activationMs": 104,
-      "readyMs": 251,
-      "revocationMs": 115,
+      "activationMs": 88,
+      "readyMs": 248,
+      "revocationMs": 112,
       "reconciles": 24,
-      "reconcilesPerSecond": 65.3908266119238
+      "reconcilesPerSecond": 66.40682689850028
     },
     {
       "clusters": 100,
-      "activationMs": 255,
-      "readyMs": 508,
-      "revocationMs": 226,
+      "activationMs": 180,
+      "readyMs": 524,
+      "revocationMs": 222,
       "reconciles": 24,
-      "reconcilesPerSecond": 32.65011085386043
+      "reconcilesPerSecond": 32.1085393639749
     }
   ]
 }
