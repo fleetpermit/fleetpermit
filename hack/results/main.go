@@ -556,7 +556,7 @@ func updateReadme(path string, out map[string]any) error {
 			for _, rep := range reps {
 				env, _ := rep["environment"].(map[string]any)
 				sum, _ := rep["summary"].(map[string]any)
-				fmt.Fprintf(&r, "- **Reproduced independently** on %s (%s/%s, %s): %s passed, %s failed, %s unsupported ([run logs](%s)).\n",
+				fmt.Fprintf(&r, "- **Reproduced** on %s (%s/%s, %s): %s passed, %s failed, %s unsupported ([run logs](%s)).\n",
 					str(rep["runner"]), str(env["os"]), str(env["arch"]), str(env["containerEngine"]),
 					str(sum["passed"]), str(sum["failed"]), str(sum["unsupported"]), str(rep["runURL"]))
 			}

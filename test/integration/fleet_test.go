@@ -972,3 +972,47 @@ func TestLeaseDroppedOnEveryClusterIsPending(t *testing.T) {
 	waitLeasePhase(t, leases[0], fpv1.LeaseExpired, fpv1.ReasonLeaseExpired)
 	waitLeasePhase(t, leases[9], fpv1.LeaseActive, fpv1.ReasonLeaseActive)
 }
+
+// TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted checks that deleting a
+// policy denies only leases that are still live: a lease that already
+// expired keeps phase Expired and is not also marked Denied.
+func TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "expired-then-deleted", []string{"ed-east"}, []string{"ed-east"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	l := f.lease("incident-77", p.Name, time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	got := waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	clock.Set(got.CreationTimestamp.Add(time.Minute + time.Second))
+	poke(t, l)
+	waitLeasePhase(t, l, fpv1.LeaseExpired, fpv1.ReasonLeaseExpired)
+
+	if err := k8s.Delete(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "the policy to be gone", func() error {
+		if err := k8s.Get(ctx, clientKey(p), &fpv1.FleetAccessPolicy{}); !apierrors.IsNotFound(err) {
+			return fmt.Errorf("policy still present: %v", err)
+		}
+		return nil
+	})
+	// Give the controller a chance to process the orphaned lease.
+	poke(t, l)
+	time.Sleep(2 * time.Second)
+	after := getLease(t, l)
+	if after.Status.Phase != fpv1.LeaseExpired {
+		t.Fatalf("an expired lease must stay Expired after its policy is deleted, got %s: %+v", after.Status.Phase, after.Status.Conditions)
+	}
+	if c := meta.FindStatusCondition(after.Status.Conditions, fpv1.ConditionDenied); c != nil && c.Status == metav1.ConditionTrue {
+		t.Fatalf("an expired lease must not also be Denied: %+v", c)
+	}
+}

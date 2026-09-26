@@ -21,7 +21,8 @@ leaderElection:
 watchNamespace: ""
 
 # Optional: ServiceAccount (namespace/name) on managed clusters that the OCM
-# work agent applies FleetPermit content as. Requires OCM executor permissions.
+# work agent applies FleetPermit content as. The chart then grants the
+# controller OCM's "execute-as" permission for that ServiceAccount only.
 workExecutor: ""
 
 logLevel: info

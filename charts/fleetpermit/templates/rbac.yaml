@@ -65,4 +65,35 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "fleetpermit.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- with .Values.workExecutor }}
+{{- $parts := splitList "/" . }}
+{{- if ne (len $parts) 2 }}{{ fail "workExecutor must be namespace/name" }}{{ end }}
+---
+# OCM admits a ManifestWork with an executor only if its creator may
+# "execute-as" that ServiceAccount; this grants exactly that one identity.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "fleetpermit.name" $ }}-work-executor
+  labels: {{- include "fleetpermit.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: ["work.open-cluster-management.io"]
+    resources: ["manifestworks"]
+    verbs: ["execute-as"]
+    resourceNames: ["system:serviceaccount:{{ index $parts 0 }}:{{ index $parts 1 }}"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "fleetpermit.name" $ }}-work-executor
+  labels: {{- include "fleetpermit.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "fleetpermit.name" $ }}-work-executor
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "fleetpermit.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
 {{- end }}

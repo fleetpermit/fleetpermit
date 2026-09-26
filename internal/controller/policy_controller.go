@@ -597,14 +597,20 @@ func (r *PolicyReconciler) recordGauges(key types.NamespacedName, active, cluste
 
 // sticky keeps Denied and Expired terminal: a lease that was denied or has
 // expired never becomes active again, even if the policy later widens.
+// The state recorded first wins: a lease that already expired stays Expired
+// even if its policy is later deleted or narrowed.
 func sticky(l *fpv1.ToolAccessLease, d lease.Decision) lease.Decision {
-	if c := findCond(l.Status.Conditions, fpv1.ConditionDenied); c != nil && c.Status == "True" && !d.Denied {
-		d.Denied, d.Reason, d.Message = true, c.Reason, c.Message
+	if c := findCond(l.Status.Conditions, fpv1.ConditionDenied); c != nil && c.Status == "True" {
+		if !d.Denied {
+			d.Reason, d.Message = c.Reason, c.Message
+		}
+		d.Denied, d.Expired = true, false
 		d.Tools, d.Clusters = nil, nil
+		return d
 	}
-	if c := findCond(l.Status.Conditions, fpv1.ConditionExpired); c != nil && c.Status == "True" && !d.Denied && !d.Expired {
-		d.Expired, d.Reason, d.Message = true, c.Reason, c.Message
-		d.Clusters = nil
+	if c := findCond(l.Status.Conditions, fpv1.ConditionExpired); c != nil && c.Status == "True" {
+		d.Denied, d.Expired, d.Reason, d.Message = false, true, c.Reason, c.Message
+		d.Tools, d.Clusters = nil, nil
 	}
 	return d
 }
