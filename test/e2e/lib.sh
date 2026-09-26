@@ -59,10 +59,11 @@ gw() { awk -v c="$1" '$1 == c {print $2}' <<<"${GW_TABLE}"; }
 probe() {
   local agent="$1" cluster="$2" tool="$3" args="${4:-}"
   [[ -n "${args}" ]] || args="$(default_args "$tool")"
-  kc "${FP_AGENT_CLUSTER}" -n "${FP_AGENTS_NAMESPACE}" exec "deploy/${agent}" -c agent -- \
-    /demo-probe -url "https://$(gw "$cluster"):${FP_GATEWAY_PORT}/mcp" -tool "${tool}" -args "${args}" \
-    -cluster "${cluster}" -trust-domain "${FP_TRUST_DOMAIN}" -timeout 5s 2>/dev/null \
-    || printf '{"cluster":"%s","tool":"%s","decision":"ERROR","detail":"exec failed"}\n' "${cluster}" "${tool}"
+  { kc "${FP_AGENT_CLUSTER}" -n "${FP_AGENTS_NAMESPACE}" exec "deploy/${agent}" -c agent -- \
+      /demo-probe -url "https://$(gw "$cluster"):${FP_GATEWAY_PORT}/mcp" -tool "${tool}" -args "${args}" \
+      -cluster "${cluster}" -trust-domain "${FP_TRUST_DOMAIN}" -timeout 5s 2>/dev/null \
+      || printf '{"cluster":"%s","tool":"%s","decision":"ERROR","detail":"exec failed"}\n' "${cluster}" "${tool}"
+  } | jq -c --arg agent "${agent}" '{agent: $agent} + .'
 }
 
 decision() { jq -r '.decision' <<<"$1"; }

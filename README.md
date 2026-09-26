@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/fleetpermit/fleetpermit/actions/workflows/ci.yaml"><img alt="CI" src="https://github.com/fleetpermit/fleetpermit/actions/workflows/ci.yaml/badge.svg"></a>
+  <a href="https://github.com/fleetpermit/fleetpermit/actions/workflows/e2e.yaml"><img alt="E2E: 1 hub + 3 clusters" src="https://github.com/fleetpermit/fleetpermit/actions/workflows/e2e.yaml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
   <a href="docs/upstream-compatibility.md"><img alt="API: v1alpha1" src="https://img.shields.io/badge/API-v1alpha1-orange"></a>
   <a href="https://fleetpermit.github.io/"><img alt="Website" src="https://img.shields.io/badge/docs-fleetpermit.github.io-0e7490"></a>
@@ -24,6 +25,18 @@ and enforced by each cluster's gateway. It expires on time even when the fleet h
 
 An agent here is just a workload with a [SPIFFE](https://spiffe.io/) identity making a standards-based
 tool call. FleetPermit does not depend on any model, agent framework, cloud or vendor.
+
+## See it run
+
+<p align="center">
+  <img src="docs/assets/demo-overview.gif" alt="Recording of a real run of make demo-run: the fleet status shows cluster-east and cluster-west selected and cluster-edge not selected; without a lease restart_workload is DENIED; a 40 second lease is created and becomes Active on 2 clusters; restart_workload is ALLOWED on east and west; the same call on cluster-edge, read_secret, and a call from security-agent are DENIED; the CEL rule with the expiry time is shown; after the countdown the call is DENIED and the lease is Expired." width="880">
+</p>
+
+A real run of `make demo-run` against the lab (sped up 1.3×; every ALLOWED and DENIED line is a
+real MCP call through a real gateway). Full-length MP4s:
+[overview](https://fleetpermit.github.io/assets/video/demo-overview.mp4) ·
+[security checks](https://fleetpermit.github.io/assets/video/demo-security.mp4) ·
+[hub disconnected](https://fleetpermit.github.io/assets/video/demo-disconnected-expiry.mp4).
 
 ## Why FleetPermit?
 
@@ -123,6 +136,13 @@ leases never become active again, and a lease's spec cannot be edited after crea
   expiry and a deterministic SHA-256 content digest.
 - **Least-privilege controller.** Read-only on OCM placement and cluster APIs, write only on
   `ManifestWork` and its own objects. No secrets, no workloads, no cluster-admin.
+
+<p align="center">
+  <img src="docs/assets/demo-disconnected-expiry.gif" alt="Recording of the hub-disconnect demo: a 40 second lease works on cluster-east and cluster-west; the hub node is paused and kubectl to the hub fails; the rule on cluster-east still shows the CEL time bound; after expiry both clusters DENY while the grant object is still present; the hub is reconnected, the lease shows Expired and the policy's only rule is no-active-grants." width="880">
+</p>
+
+The recording above pauses the whole hub node before the lease expires: both managed clusters stop
+honouring the lease on time, then the fleet converges when the hub returns.
 
 These properties rest on explicit trust assumptions. Read the [security model](docs/security-model.md)
 and the [threat model](docs/threat-model.md), including the limitations they list.

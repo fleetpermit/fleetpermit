@@ -31,13 +31,20 @@ Every layer runs from a clean clone with `make`. CI calls the same targets.
 | S14 | malformed policy | rejected at admission |
 | S15 | FleetPermit and agentic-networking controllers restarted | no change in decisions; new leases still work |
 | S16 | allowed tool, prohibited argument | recorded as **unsupported** by upstream v0.2.0 |
+| MATRIX | `sre-agent` and `security-agent` × 3 clusters × 4 tools, lease active and then expired (48 real calls) | ALLOW only for `sre-agent` on east/west for the two leased tools while the lease is active; every other call DENY |
 | R1 | lease deleted | DENY everywhere |
 | A1 | backend without any XAccessPolicy | open (upstream behaviour), closed again with the anchor |
 | RBAC | controller ServiceAccount | cannot touch pods, secrets, RBAC or namespaces |
 | METRICS | metrics endpoint | every `fleetpermit_*` metric present |
 
-Run a subset with `test/e2e/run.sh S1 S5 S11`. Every probe response is kept as evidence in
-`test-results/e2e-results.json`. The lab and the runner only ever use the kubeconfig in
+Run a subset with `test/e2e/run.sh S1 S5 S11`. Every probe response, including the test agent that
+made the call, is kept as evidence in `test-results/e2e-results.json`.
+
+**Test agents.** Two workload identities make every call: `sre-agent`
+(`spiffe://cluster.local/ns/agents/sa/sre-agent`), the policy's only subject, and `security-agent`
+(`spiffe://cluster.local/ns/agents/sa/security-agent`), which no policy lists and which must always be
+denied. Both get X.509 SVIDs from Kubernetes Pod Certificates. They are ordinary pods running the
+deterministic probe (`demo/tools/probe`), not AI models, so every run is reproducible without API keys. The lab and the runner only ever use the kubeconfig in
 `.work/lab/kubeconfig` and contexts named `kind-fleetpermit-*`. They never touch your current
 kubectl context.
 

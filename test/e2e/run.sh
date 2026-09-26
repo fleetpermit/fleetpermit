@@ -331,6 +331,62 @@ a1() {
     "$(arr "$(cut -d' ' -f2- <<<"$open")" "$(cut -d' ' -f2- <<<"$closed")")"
 }
 
+# expected_for <agent> <cluster> <tool> <lease-state> — the policy model the
+# lab implements: sre-agent is the only subject of sre-remediation, the
+# placement selects env=production (east, west), and the lease grants
+# get_cluster_health and restart_workload (the policy also permits
+# scale_workload, which the lease does not request).
+expected_for() {
+  local agent="$1" cluster="$2" tool="$3" lease="$4"
+  [[ "$agent" == sre-agent && "$lease" == active ]] || { echo DENY; return; }
+  case "$cluster" in cluster-east|cluster-west) ;; *) echo DENY; return ;; esac
+  case "$tool" in get_cluster_health|restart_workload) echo ALLOW ;; *) echo DENY ;; esac
+}
+
+run_matrix() {
+  local lease="$1" out a c t exp obs
+  for a in sre-agent security-agent; do
+    for c in ${FP_MANAGED_CLUSTERS}; do
+      for t in get_cluster_health restart_workload scale_workload read_secret; do
+        exp="$(expected_for "$a" "$c" "$t" "$lease")"
+        out="$(probe "$a" "$c" "$t")"
+        obs="$(decision "$out")"
+        jq -c --arg lease "$lease" --arg exp "$exp" --arg obs "$obs" \
+          '{agent, cluster, tool, lease: $lease, expected: $exp, observed: $obs, match: ($exp == $obs),
+            httpStatus, detail, latencyMs, timestamp}' <<<"$out" >>"${RUN_DIR}/matrix.jsonl"
+      done
+    done
+  done
+}
+
+matrix() {
+  local st=pass exp_ms total matched
+  : >"${RUN_DIR}/matrix.jsonl"
+  create_lease e2e-matrix 10m get_cluster_health,restart_workload
+  wait_decision sre-agent cluster-east restart_workload ALLOW 60 >/dev/null || st=fail
+  wait_decision sre-agent cluster-west get_cluster_health ALLOW 60 >/dev/null || st=fail
+  run_matrix active
+  delete_lease e2e-matrix
+  wait_decision sre-agent cluster-east restart_workload DENY 60 >/dev/null || st=fail
+
+  # The same 24 calls once a lease for the same tools has expired.
+  create_lease e2e-matrix-expired 20s get_cluster_health,restart_workload
+  wait_decision sre-agent cluster-east restart_workload ALLOW 60 >/dev/null || st=fail
+  exp_ms="$(iso_ms "$(lease_field e2e-matrix-expired '{.status.expiresAt}')")"
+  while (( $(now_ms) < exp_ms + 1000 )); do sleep 0.5; done
+  run_matrix expired
+  delete_lease e2e-matrix-expired
+
+  total="$(wc -l <"${RUN_DIR}/matrix.jsonl" | tr -d ' ')"
+  matched="$(jq -s 'map(select(.match)) | length' "${RUN_DIR}/matrix.jsonl")"
+  [[ "$total" == 48 && "$matched" == "$total" ]] || st=fail
+  record MATRIX "Decision matrix: 2 agents x 3 clusters x 4 tools, lease active and expired" "$st" \
+    "ALLOW only for sre-agent on east/west for the leased tools while the lease is active" \
+    "${matched} of ${total} real calls matched the expected outcome" \
+    "$(jq -s -c . "${RUN_DIR}/matrix.jsonl")" \
+    "$(jq -cn --argjson t "$total" --argjson m "$matched" '{calls:$t, matched:$m}')"
+}
+
 rbac() {
   local sa="system:serviceaccount:${FP_SYSTEM_NAMESPACE}:fleetpermit-controller" st=pass line out=""
   for check in "create pods" "get secrets" "create clusterrolebindings" "delete namespaces" "create manifestworks.work.open-cluster-management.io -n cluster-east" "list placementdecisions.cluster.open-cluster-management.io -n fleet"; do
@@ -365,12 +421,12 @@ metrics() {
 main() {
   say "FleetPermit end-to-end scenarios"
   setup_policy
-  local want="${*:-S14 S4 S1 S6 S2 S3 S8 S9 S16 R1 S5 S7 S10 S15 S11 A1 RBAC METRICS}"
+  local want="${*:-S14 S4 S1 S6 S2 S3 S8 S9 S16 R1 S5 S7 S10 S15 S11 MATRIX A1 RBAC METRICS}"
   for id in $want; do
     case "$id" in
       S14) s14 ;; S4) s4 ;; S1) s1 ;; S6) s6 ;; S2) s2 ;; S3) s3 ;; S8) s8 ;; S9) s9 ;; S16) s16 ;;
       R1) s_revoke ;; S5|S13) s5_s13 ;; S7) s7 ;; S10) s10 ;; S15) s15 ;; S11|S12) s11_s12 ;;
-      A1) a1 ;; RBAC) rbac ;; METRICS) metrics ;;
+      MATRIX) matrix ;; A1) a1 ;; RBAC) rbac ;; METRICS) metrics ;;
       *) warn "unknown scenario $id" ;;
     esac
   done
@@ -383,8 +439,12 @@ main() {
     --arg envoy "${ENVOY_IMAGE##*:}" --arg arch "$(uname -m)" --arg os "$(uname -s)" \
     --arg engine "${CONTAINER_ENGINE}" --arg kind "$(kind version | awk '{print $2}')" \
     --arg fp "${FP_COMMIT}" \
-    --arg clusters "${FP_MANAGED_CLUSTERS}" '{
+    --arg clusters "${FP_MANAGED_CLUSTERS}" --arg sre "$(spiffe_of sre-agent)" --arg sec "$(spiffe_of security-agent)" '{
       kind: "real-multicluster-e2e",
+      agents: [
+        {name: "sre-agent", spiffeID: $sre, role: "listed as a subject of policy sre-remediation; receives leases"},
+        {name: "security-agent", spiffeID: $sec, role: "not listed in any policy; every call must be denied"}
+      ],
       startedAt: $started, finishedAt: $finished,
       environment: {
         description: "local kind clusters on a single development host; not a production benchmark",

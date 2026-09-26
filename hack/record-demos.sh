@@ -5,7 +5,8 @@
 # Records the three demo videos from REAL runs of demo/run.sh against the lab:
 # asciinema captures the terminal, agg renders it, ffmpeg encodes MP4.
 # Output: dist/video/{demo-overview,demo-security,demo-disconnected-expiry}.{cast,mp4}
-# plus a poster PNG for each. Media tools are development tooling only.
+# plus a poster PNG for each, and README GIFs in docs/assets/. Media tools are
+# development tooling only.
 #
 #   FP_VIDEO_OUT   output directory (default dist/video)
 set -euo pipefail
@@ -27,6 +28,11 @@ record() {
     -vf "tpad=stop_mode=clone:stop_duration=5,scale=trunc(iw/2)*2:trunc(ih/2)*2" "${out}/${name}.mp4"
   ffmpeg -loglevel error -y -sseof -1 -i "${out}/${name}.mp4" -frames:v 1 -update 1 "${out}/${name}.png"
   rm -f "${gif}"
+  # Lightweight GIF for the README (GitHub plays GIFs inline).
+  if [[ "${name}" == demo-overview || "${name}" == demo-disconnected-expiry ]]; then
+    agg --font-size 16 --speed 1.3 --fps-cap 8 --theme monokai --idle-time-limit 1.5 --last-frame-duration 6 \
+      "${cast}" "docs/assets/${name}.gif" >/dev/null
+  fi
   printf '   %s: %s, %s bytes, %ss\n' "${name}" "${out}/${name}.mp4" "$(wc -c <"${out}/${name}.mp4" | tr -d ' ')" \
     "$(ffprobe -v error -show_entries format=duration -of csv=p=0 "${out}/${name}.mp4" | cut -d. -f1)"
 }

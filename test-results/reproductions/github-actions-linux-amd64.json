@@ -1,0 +1,196 @@
+{
+  "kind": "real-multicluster-e2e",
+  "runner": "GitHub Actions ubuntu-latest",
+  "runURL": "https://github.com/fleetpermit/fleetpermit/actions/runs/36238381559",
+  "startedAt": "2026-09-26T11:30:41Z",
+  "finishedAt": "2026-09-26T11:33:17Z",
+  "environment": {
+    "description": "local kind clusters on a single development host; not a production benchmark",
+    "hub": 1,
+    "managedClusters": 3,
+    "clusterNames": [
+      "cluster-east",
+      "cluster-west",
+      "cluster-edge"
+    ],
+    "kubernetes": "v1.35.0",
+    "openClusterManagement": "v1.3.1",
+    "kubeAgenticNetworking": "v0.2.0",
+    "gatewayAPI": "v1.5.1",
+    "envoy": "v1.36.6",
+    "kind": "v0.32.0",
+    "containerEngine": "docker",
+    "os": "Linux",
+    "arch": "x86_64",
+    "fleetpermitCommit": "e3da2e2"
+  },
+  "summary": {
+    "total": 20,
+    "passed": 19,
+    "failed": 0,
+    "unsupported": 1
+  },
+  "scenarios": [
+    {
+      "id": "S14",
+      "name": "Malformed policy is rejected at admission",
+      "status": "pass",
+      "observed": "The FleetAccessPolicy \"malformed\" is invalid:  * spec.permissions[0].tool: Invalid value: \"x') || true || ('\": spec.permissions[0].tool in body should match '^[A-Za-z0-9][A-Za-z0-9_.-]*$' * spec.placement.placementRef.name: Invalid value: \"\": spec.placement.placementRef.name in body should be at least 1 chars long * spec.subjects[0].spiffeID: Invalid value: \"https://not-spiffe.example/agent\": spec",
+      "metrics": {}
+    },
+    {
+      "id": "S4",
+      "name": "Valid identity and tool, policy exists, no lease",
+      "status": "pass",
+      "observed": "DENY",
+      "metrics": {}
+    },
+    {
+      "id": "S1",
+      "name": "Permitted tool with an active lease (east, west)",
+      "status": "pass",
+      "observed": "ALLOW east+west",
+      "metrics": {
+        "activationToAllowMsEast": 311,
+        "activationToAllowMsWest": 201,
+        "activationToReadyStatusMs": 900
+      }
+    },
+    {
+      "id": "S6",
+      "name": "Cluster outside the placement receives no grant",
+      "status": "pass",
+      "observed": "DENY, rendered=''",
+      "metrics": {}
+    },
+    {
+      "id": "S2",
+      "name": "Prohibited tool (read_secret) and tool outside the lease",
+      "status": "pass",
+      "observed": "DENY/DENY",
+      "metrics": {}
+    },
+    {
+      "id": "S3",
+      "name": "Wrong SPIFFE identity, allowed tool",
+      "status": "pass",
+      "observed": "DENY",
+      "metrics": {}
+    },
+    {
+      "id": "S8",
+      "name": "Lease asks for a tool the policy does not permit",
+      "status": "pass",
+      "observed": "lease PermissionNotAllowed, call DENY",
+      "metrics": {}
+    },
+    {
+      "id": "S9",
+      "name": "Lease asks for 1h against a 10m maximum",
+      "status": "pass",
+      "observed": "DurationExceedsMaximum: requested duration 1h0m0s exceeds policy maximum 10m0s",
+      "metrics": {}
+    },
+    {
+      "id": "S16",
+      "name": "Allowed tool, prohibited argument (replicas=1000)",
+      "status": "unsupported",
+      "observed": "replicas=3 ALLOW, replicas=1000 ALLOW: kube-agentic-networking v0.2.0 matches params.name only, so argument limits are not enforceable",
+      "metrics": {}
+    },
+    {
+      "id": "R1",
+      "name": "Deleting a lease revokes it on every cluster",
+      "status": "pass",
+      "observed": "DENY",
+      "metrics": {
+        "revocationToDenyMsEast": 284,
+        "revocationToDenyMsWest": 182
+      }
+    },
+    {
+      "id": "S5",
+      "name": "Lease expiry: ALLOW before, DENY after",
+      "status": "pass",
+      "observed": "before=ALLOW, after=DENY 491ms after expiresAt",
+      "metrics": {
+        "expiresAt": "2026-09-26T11:31:35Z",
+        "expiryToDenyMs": 491
+      }
+    },
+    {
+      "id": "S13",
+      "name": "Concurrent leases for one subject are independent",
+      "status": "pass",
+      "observed": "health DENY after its expiry, restart ALLOW",
+      "metrics": {}
+    },
+    {
+      "id": "S7",
+      "name": "Placement change moves authorization (west out, edge in)",
+      "status": "pass",
+      "observed": "west DENY, edge ALLOW",
+      "metrics": {
+        "labelChangeToDenyMs": 232,
+        "labelChangeToAllowMs": 189
+      }
+    },
+    {
+      "id": "S10",
+      "name": "Drift: rendered XAccessPolicy deleted on a managed cluster",
+      "status": "pass",
+      "observed": "right after deletion: DENY (gateway not yet updated); 2s later: DENY; ALLOW restored 9462ms after deletion",
+      "metrics": {
+        "driftRecoveryMs": 9462
+      }
+    },
+    {
+      "id": "S15",
+      "name": "Controller restarts (FleetPermit and agentic-networking) keep an active grant stable",
+      "status": "pass",
+      "observed": "40 ALLOW ",
+      "metrics": {}
+    },
+    {
+      "id": "S11",
+      "name": "Hub disconnected before expiry: managed clusters stop honouring the lease on time",
+      "status": "pass",
+      "observed": "DENY 46ms (east) / 222ms (west) after expiresAt; rendered policy still present on east (xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779), so the denial came from the data-plane time bound",
+      "metrics": {
+        "expiryToDenyMsEast": 46,
+        "expiryToDenyMsWest": 222,
+        "hubReachable": false
+      }
+    },
+    {
+      "id": "S12",
+      "name": "Reconnection: hub marks the lease Expired and withdraws stale grants",
+      "status": "pass",
+      "observed": "converged 1476ms after the hub resumed",
+      "metrics": {
+        "reconnectConvergenceMs": 1476
+      }
+    },
+    {
+      "id": "A1",
+      "name": "Why the default-deny anchor exists (upstream behaviour without any XAccessPolicy)",
+      "status": "pass",
+      "observed": "without anchor: ALLOW; with anchor: DENY",
+      "metrics": {}
+    },
+    {
+      "id": "RBAC",
+      "name": "Controller ServiceAccount is least-privilege",
+      "status": "pass",
+      "observed": "create pods=no; get secrets=no; create clusterrolebindings=no; delete namespaces=no; create manifestworks.work.open-cluster-management.io -n cluster-east=yes; list placementdecisions.cluster.open-cluster-management.io -n fleet=yes; ",
+      "metrics": {}
+    },
+    {
+      "id": "METRICS",
+      "name": "Prometheus metrics are exposed",
+      "status": "pass",
+      "observed": "39 series",
+      "metrics": {}
+    }
+  ]
+}

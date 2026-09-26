@@ -76,6 +76,17 @@ func main() {
 	if conf != nil {
 		out["conformance"] = conf
 	}
+	// Independent reproductions of the e2e suite (other hosts, engines, architectures).
+	if files, _ := filepath.Glob(filepath.Join(res, "reproductions", "*.json")); len(files) > 0 {
+		var reps []map[string]any
+		for _, f := range files {
+			if m := readJSON(f); m != nil {
+				delete(m, "scenarios")
+				reps = append(reps, m)
+			}
+		}
+		out["reproductions"] = reps
+	}
 	out["latency"] = latencies(e2e, bench)
 	if bench != nil {
 		out["benchmarkEnvironment"] = bench["environment"]
@@ -332,6 +343,10 @@ func markdown(out map[string]any) string {
 			w("| %s | %s | %s | %s | %s |\n", str(m["id"]), esc(str(m["name"])), strings.ToUpper(str(m["status"])), esc(str(m["expected"])), esc(str(m["observed"])))
 		}
 		w("\nRaw evidence (every probe response) is in `test-results/e2e-results.json`.\n\n")
+		if calls, matched, ok := matrixSummary(e2e); ok {
+			w("### Decision matrix\n\nTest agents:\n\n%s\n%s of %s real calls matched the expected outcome.\n", agentsMarkdown(e2e), matched, calls)
+			w("%s\n", matrixMarkdown(e2e, "active", "expired"))
+		}
 	} else {
 		w("## Real multi-cluster end-to-end scenarios\n\nNo e2e results found. Run `make demo-up && make test-e2e`.\n\n")
 	}
@@ -357,6 +372,17 @@ func markdown(out map[string]any) string {
 		w("- Occasional activation outliers of a few seconds come from the OCM work agent retrying, with backoff, a status update that conflicted with FleetPermit's spec update on the same ManifestWork (`Operation cannot be fulfilled ... the object has been modified` in the work-agent log).\n")
 		w("- Drift recovery is bounded by the klusterlet status sync interval (10 s in the lab): FleetPermit requests an immediate re-apply once OCM reports the object missing.\n")
 		w("- Ready status includes OCM status feedback, so it depends on the same status sync interval.\n\n")
+	}
+
+	if reps, ok := out["reproductions"].([]map[string]any); ok && len(reps) > 0 {
+		w("## Independent reproductions\n\nThe same end-to-end suite run elsewhere, from a clean checkout:\n\n| Runner | OS/arch | Engine | Commit | Passed | Failed | Unsupported | Logs |\n|---|---|---|---|---|---|---|---|\n")
+		for _, rep := range reps {
+			env, _ := rep["environment"].(map[string]any)
+			sum, _ := rep["summary"].(map[string]any)
+			w("| %s | %s/%s | %s | %s | %s | %s | %s | [run](%s) |\n", str(rep["runner"]), str(env["os"]), str(env["arch"]), str(env["containerEngine"]),
+				str(env["fleetpermitCommit"]), str(sum["passed"]), str(sum["failed"]), str(sum["unsupported"]), str(rep["runURL"]))
+		}
+		w("\n")
 	}
 
 	if sc, ok := out["scale"].(map[string]any); ok {
@@ -405,6 +431,78 @@ func markdown(out map[string]any) string {
 	return b.String()
 }
 
+var matrixTools = []string{"get_cluster_health", "restart_workload", "scale_workload", "read_secret"}
+
+// matrixMarkdown renders the MATRIX scenario as one table per lease state:
+// rows are agent x cluster, columns are tools, cells show the observed
+// decision and whether it matched the expected one.
+func matrixMarkdown(e2e map[string]any, leases ...string) string {
+	var rows []map[string]any
+	for _, sc := range asSlice(e2e["scenarios"]) {
+		m, _ := sc.(map[string]any)
+		if m["id"] == "MATRIX" {
+			for _, ev := range asSlice(m["evidence"]) {
+				if r, ok := ev.(map[string]any); ok {
+					rows = append(rows, r)
+				}
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	cell := map[string]map[string]any{}
+	for _, r := range rows {
+		cell[str(r["lease"])+"|"+str(r["agent"])+"|"+str(r["cluster"])+"|"+str(r["tool"])] = r
+	}
+	for _, lease := range leases {
+		fmt.Fprintf(&b, "\n**Lease %s**\n\n| Agent | Cluster | %s |\n|---|---|%s\n", lease,
+			strings.Join(matrixTools, " | "), strings.Repeat("---|", len(matrixTools)))
+		for _, agent := range []string{"sre-agent", "security-agent"} {
+			for _, cluster := range []string{"cluster-east", "cluster-west", "cluster-edge"} {
+				var cells []string
+				for _, tool := range matrixTools {
+					r, ok := cell[lease+"|"+agent+"|"+cluster+"|"+tool]
+					switch {
+					case !ok:
+						cells = append(cells, "—")
+					case r["match"] == true && r["observed"] == "ALLOW":
+						cells = append(cells, "✅ ALLOW")
+					case r["match"] == true:
+						cells = append(cells, "⛔ DENY")
+					default:
+						cells = append(cells, fmt.Sprintf("❌ expected %s, got %s", str(r["expected"]), str(r["observed"])))
+					}
+				}
+				fmt.Fprintf(&b, "| `%s` | %s | %s |\n", agent, cluster, strings.Join(cells, " | "))
+			}
+		}
+	}
+	return b.String()
+}
+
+// agentsMarkdown describes the workload identities used by the tests.
+func agentsMarkdown(e2e map[string]any) string {
+	var b strings.Builder
+	for _, a := range asSlice(e2e["agents"]) {
+		m, _ := a.(map[string]any)
+		fmt.Fprintf(&b, "- **`%s`** (`%s`): %s\n", str(m["name"]), str(m["spiffeID"]), str(m["role"]))
+	}
+	return b.String()
+}
+
+func matrixSummary(e2e map[string]any) (calls, matched string, ok bool) {
+	for _, sc := range asSlice(e2e["scenarios"]) {
+		m, _ := sc.(map[string]any)
+		if m["id"] == "MATRIX" {
+			mt, _ := m["metrics"].(map[string]any)
+			return str(mt["calls"]), str(mt["matched"]), true
+		}
+	}
+	return "", "", false
+}
+
 // updateReadme rewrites the block between the results markers in README.md.
 func updateReadme(path string, out map[string]any) error {
 	b, err := os.ReadFile(path)
@@ -426,6 +524,28 @@ func updateReadme(path string, out map[string]any) error {
 			str(env["kubeAgenticNetworking"]), str(env["os"]), str(env["arch"]), str(e2e["finishedAt"])[:10])
 		fmt.Fprintf(&r, "- **%s of %s scenarios passed**, %s failed, %s not supported by the upstream API (argument-level matching).\n",
 			str(sum["passed"]), str(sum["total"]), str(sum["failed"]), str(sum["unsupported"]))
+		if reps, ok := out["reproductions"].([]map[string]any); ok {
+			for _, rep := range reps {
+				env, _ := rep["environment"].(map[string]any)
+				sum, _ := rep["summary"].(map[string]any)
+				fmt.Fprintf(&r, "- **Reproduced independently** on %s (%s/%s, %s): %s passed, %s failed, %s unsupported ([run logs](%s)).\n",
+					str(rep["runner"]), str(env["os"]), str(env["arch"]), str(env["containerEngine"]),
+					str(sum["passed"]), str(sum["failed"]), str(sum["unsupported"]), str(rep["runURL"]))
+			}
+		}
+		if calls, matched, ok := matrixSummary(e2e); ok {
+			fmt.Fprintf(&r, "- **Decision matrix: %s of %s real MCP calls matched the expected outcome.**\n", matched, calls)
+			fmt.Fprintf(&r, "\n#### Test agents and expected outcomes\n\nTwo workload identities make every call. Their SPIFFE X.509 certificates come from Kubernetes Pod Certificates:\n\n%s", agentsMarkdown(e2e))
+			fmt.Fprintf(&r, "\nThe lease grants `get_cluster_health` and `restart_workload` to `sre-agent`, on the clusters the placement selects (env=production: east and west). Each cell below is a real call through that cluster's gateway, showing the observed decision (✅/⛔ = matched the expectation, ❌ = did not):\n")
+			r.WriteString(matrixMarkdown(e2e, "active"))
+			r.WriteString("\nAfter the lease expires, the same 24 calls are repeated. Expected: all DENY. ")
+			exp := matrixMarkdown(e2e, "expired")
+			if strings.Contains(exp, "ALLOW") || strings.Contains(exp, "❌") {
+				r.WriteString("Observed:\n" + exp)
+			} else {
+				r.WriteString("Observed: all 24 DENY, as expected ([full table](docs/results.md#decision-matrix)).\n")
+			}
+		}
 	}
 	if lat, ok := out["latency"].(map[string]*latency); ok {
 		row := func(k string) {
