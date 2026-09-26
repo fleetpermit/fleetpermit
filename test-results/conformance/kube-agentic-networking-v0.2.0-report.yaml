@@ -1,0 +1,33 @@
+GatewayLayerVersion: v0.2.0
+apiVersion: gateway.networking.k8s.io/v1
+date: "2026-09-26T15:34:03+05:30"
+gatewayAPIChannel: standard
+gatewayAPIVersion: v1.5.1
+implementation:
+  contact:
+  - ""
+  organization: ""
+  project: ""
+  url: ""
+  version: ""
+kind: ConformanceReport
+mode: default
+profiles:
+- core:
+    result: success
+    statistics:
+      Failed: 0
+      Passed: 5
+      Skipped: 0
+  extended:
+    result: success
+    statistics:
+      Failed: 0
+      Passed: 1
+      Skipped: 0
+    supportedFeatures:
+    - SupportAccessPolicySPIFFESource
+    unsupportedFeatures:
+    - SupportAccessPolicyExternalAuth
+  name: Gateway
+  summary: Core tests succeeded. Extended tests succeeded.

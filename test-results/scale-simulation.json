@@ -1,0 +1,46 @@
+{
+  "environment": {
+    "cpus": 14,
+    "description": "envtest kube-apiserver + etcd on one host; simulated OCM work agent; no real managed clusters",
+    "goarch": "arm64",
+    "goos": "darwin",
+    "note": "activation = lease created until every cluster's ManifestWork carries the grant; ready = until the lease reports Ready after simulated acknowledgement; revocation = lease deleted until no ManifestWork carries it",
+    "pollIntervalMs": 10
+  },
+  "generatedAt": "2026-09-26T09:46:31Z",
+  "kind": "simulated-controller-scale",
+  "rows": [
+    {
+      "clusters": 10,
+      "activationMs": 13,
+      "readyMs": 105,
+      "revocationMs": 99,
+      "reconciles": 12,
+      "reconcilesPerSecond": 58.47429597861302
+    },
+    {
+      "clusters": 25,
+      "activationMs": 105,
+      "readyMs": 210,
+      "revocationMs": 97,
+      "reconciles": 25,
+      "reconcilesPerSecond": 81.18704105310736
+    },
+    {
+      "clusters": 50,
+      "activationMs": 104,
+      "readyMs": 256,
+      "revocationMs": 100,
+      "reconciles": 26,
+      "reconcilesPerSecond": 72.71737360441621
+    },
+    {
+      "clusters": 100,
+      "activationMs": 143,
+      "readyMs": 400,
+      "revocationMs": 199,
+      "reconciles": 22,
+      "reconcilesPerSecond": 36.665021873785406
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+--- PASS: TestConformance
+    --- PASS: TestConformance/XAccessPolicyAccepted
+    --- PASS: TestConformance/XAccessPolicyAllowAccepted
+    --- PASS: TestConformance/XAccessPolicyBaseProtocolMatch
+    --- PASS: TestConformance/XAccessPolicyBaseProtocolSkip
+    --- SKIP: TestConformance/XAccessPolicyEvaluationLogic
+    --- SKIP: TestConformance/XAccessPolicyExtAuthAccepted
+    --- SKIP: TestConformance/XAccessPolicyExtAuthLimit
+    --- PASS: TestConformance/XAccessPolicySAMatching
+    --- PASS: TestConformance/XAccessPolicySPIFFEMatching

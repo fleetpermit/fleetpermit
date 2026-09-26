@@ -1,0 +1,16 @@
+{
+  "suites": [
+    {
+      "suite": "kube-agentic-networking conformance (upstream, unmodified)",
+      "version": "v0.2.0",
+      "target": "cluster-edge (Kubernetes v1.35.0, kind)",
+      "result": "PASS — 6 passed, 0 failed, 3 skipped",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 3,
+      "date": "2026-09-26T10:03:47Z",
+      "command": "go test -count=1 -v ./conformance -run TestConformance -timeout 30m -args --gateway-class=kube-agentic-networking --cleanup-base-resources=true --supported-features=SupportAccessPolicySPIFFESource --report-output=<out>/kube-agentic-networking-v0.2.0-report.yaml",
+      "note": "The upstream MCP backend image referenced by the suite is not published; it was built from the upstream Dockerfile at v0.2.0."
+    }
+  ]
+}

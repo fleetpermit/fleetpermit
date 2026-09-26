@@ -152,19 +152,19 @@ Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM
 
 | Measured on real clusters | n | p50 | p95 |
 |---|---|---|---|
-| Lease created → first ALLOW at the gateway | 18 | 178 ms | 414 ms |
+| Lease created → first ALLOW at the gateway | 18 | 180 ms | 5307 ms |
 | Lease deleted → first DENY at the gateway | 18 | 185 ms | 418 ms |
 | Lease expiry → first DENY (hub connected) | 4 | 156 ms | 296 ms |
-| Lease expiry → first DENY (hub disconnected) | 2 | 356 ms | 526 ms |
-| Rendered policy deleted on a cluster → restored | 5 | 9901 ms | 10169 ms |
-| Lease created → lease reports Ready (includes OCM status sync) | 9 | 573 ms | 582 ms |
+| Lease expiry → first DENY (hub disconnected) | 2 | 255 ms | 428 ms |
+| Rendered policy deleted on a cluster → restored | 5 | 9901 ms | 13175 ms |
+| Lease created → lease reports Ready (includes OCM status sync) | 9 | 574 ms | 5711 ms |
 | Probe round trip (measurement baseline) | 10 | 121 ms | 167 ms |
 
 Simulated controller scale (envtest, no real clusters): a lease reached 100 logical clusters' ManifestWorks in 143 ms and was withdrawn in 199 ms.
 
 Upstream conformance, run unmodified against a lab cluster: kube-agentic-networking conformance (upstream, unmodified) v0.2.0: **PASS — 6 passed, 0 failed, 3 skipped**.
 
-Statement coverage of `internal/` (unit + integration): **90.2%**.
+Statement coverage of `internal/` (unit + integration): **90.0%**.
 <!-- results:end -->
 
 Full tables, raw evidence and methodology: [docs/results.md](docs/results.md). These are local kind

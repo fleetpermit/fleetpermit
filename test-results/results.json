@@ -1,0 +1,831 @@
+{
+  "benchmarkEnvironment": {
+    "arch": "arm64",
+    "description": "local kind clusters (1 hub + 3 managed) on one development host; not a production benchmark",
+    "envoy": "v1.36.6",
+    "kubeAgenticNetworking": "v0.2.0",
+    "kubernetes": "v1.35.0",
+    "method": "host-side real MCP calls via kubectl exec; each latency includes one probe round trip (see probeRoundTripMs)",
+    "ocmStatusSyncInterval": "10s",
+    "openClusterManagement": "v1.3.1",
+    "os": "Darwin"
+  },
+  "conformance": {
+    "suites": [
+      {
+        "command": "go test -count=1 -v ./conformance -run TestConformance -timeout 30m -args --gateway-class=kube-agentic-networking --cleanup-base-resources=true --supported-features=SupportAccessPolicySPIFFESource --report-output=\u003cout\u003e/kube-agentic-networking-v0.2.0-report.yaml",
+        "date": "2026-09-26T10:03:47Z",
+        "failed": 0,
+        "note": "The upstream MCP backend image referenced by the suite is not published; it was built from the upstream Dockerfile at v0.2.0.",
+        "passed": 6,
+        "result": "PASS — 6 passed, 0 failed, 3 skipped",
+        "skipped": 3,
+        "suite": "kube-agentic-networking conformance (upstream, unmodified)",
+        "target": "cluster-edge (Kubernetes v1.35.0, kind)",
+        "version": "v0.2.0"
+      }
+    ]
+  },
+  "coverage": {
+    "internalPackages": "90.0%",
+    "scope": "statements in internal/... covered by unit and integration tests combined"
+  },
+  "e2e": {
+    "environment": {
+      "arch": "arm64",
+      "clusterNames": [
+        "cluster-east",
+        "cluster-west",
+        "cluster-edge"
+      ],
+      "containerEngine": "podman",
+      "description": "local kind clusters on a single development host; not a production benchmark",
+      "envoy": "v1.36.6",
+      "fleetpermitCommit": "3d66b75",
+      "gatewayAPI": "v1.5.1",
+      "hub": 1,
+      "kind": "v0.32.0",
+      "kubeAgenticNetworking": "v0.2.0",
+      "kubernetes": "v1.35.0",
+      "managedClusters": 3,
+      "openClusterManagement": "v1.3.1",
+      "os": "Darwin"
+    },
+    "finishedAt": "2026-09-26T10:27:50Z",
+    "kind": "real-multicluster-e2e",
+    "scenarios": [
+      {
+        "evidence": [
+          "The FleetAccessPolicy \"malformed\" is invalid: \n* spec.enforcement.failMode: Unsupported value: \"Open\": supported values: \"Closed\"\n* spec.permissions[0].tool: Invalid value: \"x') || true || ('\": spec.permissions[0].tool in body should match '^[A-Za-z0-9][A-Za-z0-9_.-]*$'\n* spec.placement.placementRef.name: Invalid value: \"\": spec.placement.placementRef.name in body should be at least 1 chars long\n* spec.subjects[0].spiffeID: Invalid value: \"https://not-spiffe.example/agent\": spec.subjects[0].spiffeID in body should match '^spiffe://[a-z0-9._-]+(/[A-Za-z0-9._-]+)*$'\n* \u003cnil\u003e: Invalid value: null: some validation rules were not checked because the object was invalid; correct the existing errors to complete validation"
+        ],
+        "expected": "rejected with field errors",
+        "id": "S14",
+        "metrics": {},
+        "name": "Malformed policy is rejected at admission",
+        "observed": "The FleetAccessPolicy \"malformed\" is invalid:  * spec.enforcement.failMode: Unsupported value: \"Open\": supported values: \"Closed\" * spec.permissions[0].tool: Invalid value: \"x') || true || ('\": spec.permissions[0].tool in body should match '^[A-Za-z0-9][A-Za-z0-9_.-]*$' * spec.placement.placementRef.name: Invalid value: \"\": spec.placement.placementRef.name in body should be at least 1 chars long *",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 9,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:25:23.974999048Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "DENY",
+        "id": "S4",
+        "metrics": {},
+        "name": "Valid identity and tool, policy exists, no lease",
+        "observed": "DENY",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "ALLOW",
+            "detail": "[cluster-east] restart_workload: restart of shop/checkout accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:29.393454831Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "ALLOW",
+            "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 14,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:29.574044914Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "ALLOW on selected clusters",
+        "id": "S1",
+        "metrics": {
+          "activationToAllowMsEast": 5307,
+          "activationToAllowMsWest": 145,
+          "activationToReadyStatusMs": 5711
+        },
+        "name": "Permitted tool with an active lease (east, west)",
+        "observed": "ALLOW east+west",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-edge",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 3,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:25:29.905365915Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "DENY, nothing rendered on cluster-edge",
+        "id": "S6",
+        "metrics": {},
+        "name": "Cluster outside the placement receives no grant",
+        "observed": "DENY, rendered=''",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:30.079326595Z",
+            "tool": "read_secret"
+          },
+          {
+            "cluster": "cluster-east",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 3,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:30.195657536Z",
+            "tool": "scale_workload"
+          }
+        ],
+        "expected": "DENY both",
+        "id": "S2",
+        "metrics": {},
+        "name": "Prohibited tool (read_secret) and tool outside the lease",
+        "observed": "DENY/DENY",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 1,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:25:30.344071236Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "DENY",
+        "id": "S3",
+        "metrics": {},
+        "name": "Wrong SPIFFE identity, allowed tool",
+        "observed": "DENY",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:30.627643454Z",
+            "tool": "read_secret"
+          }
+        ],
+        "expected": "lease Denied (PermissionNotAllowed), call DENY",
+        "id": "S8",
+        "metrics": {},
+        "name": "Lease asks for a tool the policy does not permit",
+        "observed": "lease PermissionNotAllowed, call DENY",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          "requested duration 1h0m0s exceeds policy maximum 10m0s"
+        ],
+        "expected": "lease Denied (DurationExceedsMaximum)",
+        "id": "S9",
+        "metrics": {},
+        "name": "Lease asks for 1h against a 10m maximum",
+        "observed": "DurationExceedsMaximum: requested duration 1h0m0s exceeds policy maximum 10m0s",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "ALLOW",
+            "detail": "[cluster-east] scale_workload: scale of shop/checkout to 3 accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:31.243355885Z",
+            "tool": "scale_workload"
+          },
+          {
+            "cluster": "cluster-east",
+            "decision": "ALLOW",
+            "detail": "[cluster-east] scale_workload: scale of shop/checkout to 1000 accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:31.348452113Z",
+            "tool": "scale_workload"
+          }
+        ],
+        "expected": "DENY replicas=1000 if upstream supports argument matching",
+        "id": "S16",
+        "metrics": {},
+        "name": "Allowed tool, prohibited argument (replicas=1000)",
+        "observed": "replicas=3 ALLOW, replicas=1000 ALLOW: kube-agentic-networking v0.2.0 matches params.name only, so argument limits are not enforceable",
+        "status": "unsupported"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 1,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:25:31.638140899Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 2,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:25:31.807684019Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "DENY east+west",
+        "id": "R1",
+        "metrics": {
+          "revocationToDenyMsEast": 133,
+          "revocationToDenyMsWest": 128
+        },
+        "name": "Deleting a lease revokes it on every cluster",
+        "observed": "DENY",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-west",
+            "decision": "ALLOW",
+            "detail": "[cluster-west] get_cluster_health: healthy (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:32.953205774Z",
+            "tool": "get_cluster_health"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 3,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:26:11.061906291Z",
+            "tool": "get_cluster_health"
+          }
+        ],
+        "expected": "ALLOW then DENY at expiry",
+        "id": "S5",
+        "metrics": {
+          "expiresAt": "2026-09-26T10:26:11Z",
+          "expiryToDenyMs": 61
+        },
+        "name": "Lease expiry: ALLOW before, DENY after",
+        "observed": "before=ALLOW, after=DENY 61ms after expiresAt",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-west",
+            "decision": "ALLOW",
+            "detail": "[cluster-west] get_cluster_health: healthy (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:32.554584703Z",
+            "tool": "get_cluster_health"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "ALLOW",
+            "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:25:32.732452274Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "ALLOW",
+            "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:26:11.250314324Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "health expires at 40s, restart still ALLOW",
+        "id": "S13",
+        "metrics": {},
+        "name": "Concurrent leases for one subject are independent",
+        "observed": "health DENY after its expiry, restart ALLOW",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-edge",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 2,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:26:12.173596114Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 1,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:26:12.817435578Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-edge",
+            "decision": "ALLOW",
+            "detail": "[cluster-edge] restart_workload: restart of shop/checkout accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 5,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:26:12.991383384Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "west DENY, edge ALLOW",
+        "id": "S7",
+        "metrics": {
+          "labelChangeToAllowMs": 135,
+          "labelChangeToDenyMs": 515
+        },
+        "name": "Placement change moves authorization (west out, edge in)",
+        "observed": "west DENY, edge ALLOW",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-west",
+            "decision": "ALLOW",
+            "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 3,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:26:14.142170952Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 1,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:26:16.256594687Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "ALLOW",
+            "detail": "[cluster-west] restart_workload: restart of shop/checkout accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 3,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:26:27.085381261Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "denied while the grant is missing (anchor), then restored from the hub",
+        "id": "S10",
+        "metrics": {
+          "driftRecoveryMs": 13175
+        },
+        "name": "Drift: rendered XAccessPolicy deleted on a managed cluster",
+        "observed": "right after deletion: ALLOW (gateway not yet updated); 2s later: DENY; ALLOW restored 13175ms after deletion",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "ALLOW",
+            "detail": "[cluster-east] get_cluster_health: healthy (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 3,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:26:52.2863602Z",
+            "tool": "get_cluster_health"
+          }
+        ],
+        "expected": "40/40 ALLOW during restarts; new leases work afterwards",
+        "id": "S15",
+        "metrics": {},
+        "name": "Controller restarts (FleetPermit and agentic-networking) keep an active grant stable",
+        "observed": "40 ALLOW ",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "ALLOW",
+            "detail": "[cluster-east] restart_workload: restart of shop/checkout accepted (simulated)",
+            "httpStatus": 200,
+            "latencyMs": 3,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:26:57.216542123Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-east",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 3,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:27:42.255209905Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 3,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:27:42.42859525Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "DENY at expiry on east and west with the hub unreachable",
+        "id": "S11",
+        "metrics": {
+          "expiryToDenyMsEast": 255,
+          "expiryToDenyMsWest": 428,
+          "hubReachable": false
+        },
+        "name": "Hub disconnected before expiry: managed clusters stop honouring the lease on time",
+        "observed": "DENY 255ms (east) / 428ms (west) after expiresAt; rendered policy still present on east (xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779), so the denial came from the data-plane time bound",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-east",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 2,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:27:43.232211086Z",
+            "tool": "restart_workload"
+          },
+          {
+            "cluster": "cluster-west",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 2,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:27:43.336239851Z",
+            "tool": "restart_workload"
+          }
+        ],
+        "expected": "lease Expired, rendered policies removed, calls stay DENY",
+        "id": "S12",
+        "metrics": {
+          "reconnectConvergenceMs": 432
+        },
+        "name": "Reconnection: hub marks the lease Expired and withdraws stale grants",
+        "observed": "converged 432ms after the hub resumed",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "cluster": "cluster-edge",
+            "decision": "ALLOW",
+            "detail": "[cluster-edge] read_secret: shop/db-password = fake-demo-value",
+            "httpStatus": 200,
+            "latencyMs": 4,
+            "stage": "tools/call",
+            "timestamp": "2026-09-26T10:27:43.558491149Z",
+            "tool": "read_secret"
+          },
+          {
+            "cluster": "cluster-edge",
+            "decision": "DENY",
+            "detail": "JSON-RPC error 403: Access to this tool is forbidden.",
+            "httpStatus": 200,
+            "latencyMs": 2,
+            "stage": "initialize",
+            "timestamp": "2026-09-26T10:27:44.003268078Z",
+            "tool": "read_secret"
+          }
+        ],
+        "expected": "without anchor the backend is open; with anchor it is closed",
+        "id": "A1",
+        "metrics": {},
+        "name": "Why the default-deny anchor exists (upstream behaviour without any XAccessPolicy)",
+        "observed": "without anchor: ALLOW; with anchor: DENY",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          "create pods=no; get secrets=no; create clusterrolebindings=no; delete namespaces=no; create manifestworks.work.open-cluster-management.io -n cluster-east=yes; list placementdecisions.cluster.open-cluster-management.io -n fleet=yes; "
+        ],
+        "expected": "no pods/secrets/RBAC/namespaces; yes ManifestWork/PlacementDecision",
+        "id": "RBAC",
+        "metrics": {},
+        "name": "Controller ServiceAccount is least-privilege",
+        "observed": "create pods=no; get secrets=no; create clusterrolebindings=no; delete namespaces=no; create manifestworks.work.open-cluster-management.io -n cluster-east=yes; list placementdecisions.cluster.open-cluster-management.io -n fleet=yes; ",
+        "status": "pass"
+      },
+      {
+        "evidence": [],
+        "expected": "all fleetpermit_* metrics present",
+        "id": "METRICS",
+        "metrics": {},
+        "name": "Prometheus metrics are exposed",
+        "observed": "39 series",
+        "status": "pass"
+      }
+    ],
+    "startedAt": "2026-09-26T10:25:22Z",
+    "summary": {
+      "failed": 0,
+      "passed": 19,
+      "total": 20,
+      "unsupported": 1
+    }
+  },
+  "generatedAt": "2026-09-26T10:30:10Z",
+  "latency": {
+    "activationToAllowMs": {
+      "label": "Lease created → first ALLOW at the gateway",
+      "unit": "ms",
+      "source": "benchmark, e2e S1",
+      "samples": [
+        145,
+        168,
+        171,
+        174,
+        175,
+        176,
+        177,
+        178,
+        180,
+        394,
+        396,
+        398,
+        401,
+        401,
+        403,
+        407,
+        414,
+        5307
+      ],
+      "p50": 180,
+      "p95": 5307,
+      "min": 145,
+      "max": 5307
+    },
+    "activationToReadyStatusMs": {
+      "label": "Lease created → lease reports Ready (includes OCM status sync)",
+      "unit": "ms",
+      "source": "benchmark, e2e S1",
+      "samples": [
+        563,
+        566,
+        572,
+        573,
+        574,
+        576,
+        579,
+        582,
+        5711
+      ],
+      "p50": 574,
+      "p95": 5711,
+      "min": 563,
+      "max": 5711
+    },
+    "driftRecoveryMs": {
+      "label": "Rendered policy deleted on a cluster → restored",
+      "unit": "ms",
+      "source": "benchmark, e2e S10",
+      "samples": [
+        8162,
+        9759,
+        9901,
+        10169,
+        13175
+      ],
+      "p50": 9901,
+      "p95": 13175,
+      "min": 8162,
+      "max": 13175
+    },
+    "expiryToDenyHubDownMs": {
+      "label": "Lease expiry → first DENY (hub disconnected)",
+      "unit": "ms",
+      "source": "e2e S11",
+      "samples": [
+        255,
+        428
+      ],
+      "p50": 255,
+      "p95": 428,
+      "min": 255,
+      "max": 428
+    },
+    "expiryToDenyMs": {
+      "label": "Lease expiry → first DENY (hub connected)",
+      "unit": "ms",
+      "source": "benchmark, e2e S5",
+      "samples": [
+        61,
+        156,
+        252,
+        296
+      ],
+      "p50": 156,
+      "p95": 296,
+      "min": 61,
+      "max": 296
+    },
+    "placementChangeMs": {
+      "label": "Cluster label change → authorization moves",
+      "unit": "ms",
+      "source": "e2e S7",
+      "samples": [
+        135,
+        515
+      ],
+      "p50": 135,
+      "p95": 515,
+      "min": 135,
+      "max": 515
+    },
+    "probeRoundTripMs": {
+      "label": "Probe round trip (measurement baseline)",
+      "unit": "ms",
+      "source": "benchmark",
+      "samples": [
+        106,
+        118,
+        119,
+        120,
+        121,
+        121,
+        125,
+        126,
+        131,
+        167
+      ],
+      "p50": 121,
+      "p95": 167,
+      "min": 106,
+      "max": 167
+    },
+    "reconnectConvergenceMs": {
+      "label": "Hub reconnected → stale grants withdrawn",
+      "unit": "ms",
+      "source": "e2e S12",
+      "samples": [
+        432
+      ],
+      "p50": 432,
+      "p95": 432,
+      "min": 432,
+      "max": 432
+    },
+    "revocationToDenyMs": {
+      "label": "Lease deleted → first DENY at the gateway",
+      "unit": "ms",
+      "source": "benchmark, e2e R1",
+      "samples": [
+        128,
+        133,
+        163,
+        165,
+        168,
+        169,
+        170,
+        174,
+        185,
+        187,
+        368,
+        375,
+        390,
+        391,
+        393,
+        403,
+        404,
+        418
+      ],
+      "p50": 185,
+      "p95": 418,
+      "min": 128,
+      "max": 418
+    }
+  },
+  "scale": {
+    "environment": {
+      "cpus": 14,
+      "description": "envtest kube-apiserver + etcd on one host; simulated OCM work agent; no real managed clusters",
+      "goarch": "arm64",
+      "goos": "darwin",
+      "note": "activation = lease created until every cluster's ManifestWork carries the grant; ready = until the lease reports Ready after simulated acknowledgement; revocation = lease deleted until no ManifestWork carries it",
+      "pollIntervalMs": 10
+    },
+    "generatedAt": "2026-09-26T09:46:31Z",
+    "kind": "simulated-controller-scale",
+    "rows": [
+      {
+        "activationMs": 13,
+        "clusters": 10,
+        "readyMs": 105,
+        "reconciles": 12,
+        "reconcilesPerSecond": 58.47429597861302,
+        "revocationMs": 99
+      },
+      {
+        "activationMs": 105,
+        "clusters": 25,
+        "readyMs": 210,
+        "reconciles": 25,
+        "reconcilesPerSecond": 81.18704105310736,
+        "revocationMs": 97
+      },
+      {
+        "activationMs": 104,
+        "clusters": 50,
+        "readyMs": 256,
+        "reconciles": 26,
+        "reconcilesPerSecond": 72.71737360441621,
+        "revocationMs": 100
+      },
+      {
+        "activationMs": 143,
+        "clusters": 100,
+        "readyMs": 400,
+        "reconciles": 22,
+        "reconcilesPerSecond": 36.665021873785406,
+        "revocationMs": 199
+      }
+    ]
+  },
+  "source": "https://github.com/fleetpermit/fleetpermit/tree/main/test-results",
+  "tests": {
+    "integration": {
+      "passed": 14,
+      "failed": 0,
+      "skipped": 1,
+      "coverage": "87.1%"
+    },
+    "unit": {
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "coverage": "33.9%"
+    }
+  }
+}

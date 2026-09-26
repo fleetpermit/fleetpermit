@@ -1,0 +1,86 @@
+{
+  "kind": "real-multicluster-benchmark",
+  "generatedAt": "2026-09-26T09:52:38Z",
+  "environment": {
+    "description": "local kind clusters (1 hub + 3 managed) on one development host; not a production benchmark",
+    "kubernetes": "v1.35.0",
+    "openClusterManagement": "v1.3.1",
+    "kubeAgenticNetworking": "v0.2.0",
+    "envoy": "v1.36.6",
+    "os": "Darwin",
+    "arch": "arm64",
+    "ocmStatusSyncInterval": "10s",
+    "method": "host-side real MCP calls via kubectl exec; each latency includes one probe round trip (see probeRoundTripMs)"
+  },
+  "samples": {
+    "activationToAllowMs": [
+      178,
+      401,
+      180,
+      414,
+      168,
+      401,
+      176,
+      396,
+      171,
+      403,
+      174,
+      398,
+      175,
+      407,
+      177,
+      394
+    ],
+    "activationToReadyStatusMs": [
+      574,
+      573,
+      576,
+      563,
+      582,
+      572,
+      579,
+      566
+    ],
+    "driftRecoveryMs": [
+      9901,
+      8162,
+      10169,
+      9759
+    ],
+    "expiryToDenyMs": [
+      252,
+      296,
+      156
+    ],
+    "probeRoundTripMs": [
+      125,
+      167,
+      121,
+      119,
+      106,
+      118,
+      121,
+      131,
+      120,
+      126
+    ],
+    "revocationToDenyMs": [
+      170,
+      393,
+      163,
+      390,
+      174,
+      368,
+      165,
+      391,
+      169,
+      403,
+      185,
+      404,
+      168,
+      375,
+      187,
+      418
+    ]
+  }
+}
