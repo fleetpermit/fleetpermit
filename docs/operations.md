@@ -39,7 +39,7 @@ only when a `ManagedClusterSetBinding` binds a cluster set to the namespace.
 | `image.pullPolicy`, `imagePullSecrets` | `IfNotPresent`, `[]` | |
 | `replicas` | `1` | more replicas are safe with leader election |
 | `leaderElection.enabled` | `true` | |
-| `watchNamespace` | `""` | restrict FleetPermit objects, placements and decisions to one namespace |
+| `watchNamespace` | `""` | restrict FleetPermit objects, placements and decisions to one namespace; policies and events outside it are ignored |
 | `workExecutor` | `""` | `namespace/name` of a managed-cluster ServiceAccount that the OCM work agent checks FleetPermit's content against before applying it; see [RBAC](#rbac) |
 | `logLevel` | `info` | controller log level, passed as `--zap-log-level` |
 | `metrics.enabled` / `metrics.port` / `metrics.scrapeAnnotations` | `true` / `8080` / `true` | Prometheus endpoint and `prometheus.io/*` annotations |
@@ -158,12 +158,15 @@ Served at `:8080/metrics`. No metric uses identities, lease names or cluster nam
 | `fleetpermit_denied_leases_total` | counter | `reason` | leases that transitioned to Denied |
 | `fleetpermit_authorized_clusters` | gauge | none | (policy, cluster) pairs holding grants |
 | `fleetpermit_policy_propagation_seconds` | histogram | none | lease creation → first Ready on every target cluster; observed once per lease per controller process |
-| `fleetpermit_lease_revocation_seconds` | histogram | none | expiry or denial → grants withdrawn everywhere (cleanup; the gateway already denies at expiry) |
-| `fleetpermit_placement_changes_total` | counter | none | observed changes to a policy's selected clusters |
+| `fleetpermit_lease_revocation_seconds` | histogram | none | expiry or denial → grants withdrawn everywhere, observed once the last ManifestWork carrying the grant is gone (cleanup; the gateway already denies at expiry). A cluster that stays offline delays the sample |
+| `fleetpermit_placement_changes_total` | counter | none | changes to a policy's selected clusters that this controller process observes; a change made while the controller was down is not counted |
 
 Useful alerts:
 
-- `increase(fleetpermit_reconcile_errors_total[10m]) > 0`
+- `increase(fleetpermit_reconcile_errors_total[10m]) > 0`. Lease status writes are conditional on the
+  resource version that was read, so a concurrent update causes a conflict that is retried and also
+  counts as a reconcile error. A single error can be such a harmless conflict, so check the controller
+  log before acting.
 - `fleetpermit_active_leases > 0` for longer than your longest `maxDuration` (leases should come and go)
 - `histogram_quantile(0.95, sum by (le) (rate(fleetpermit_policy_propagation_seconds_bucket[6h]))) > 60`.
   Each lease adds one sample, so use a window that holds several leases. A lease that never becomes
@@ -175,7 +178,8 @@ controller-runtime's standard workqueue and REST client metrics are also exporte
 
 Set `tracing.otlpEndpoint` (or `OTEL_EXPORTER_OTLP_ENDPOINT`). Spans: `fleetpermit.reconcile.policy`
 (attribute `fleetpermit.policy`) and `fleetpermit.render.cluster` (attributes `fleetpermit.cluster`,
-`fleetpermit.grants`, `fleetpermit.content_digest`).
+`fleetpermit.grants`, `fleetpermit.content_digest`). Spans are flushed when the controller exits. In
+v0.1.0 the trace exporter could not start; use v0.1.1 or later for tracing.
 
 ## Day-2 operations
 
@@ -183,9 +187,11 @@ Set `tracing.otlpEndpoint` (or `OTEL_EXPORTER_OTLP_ENDPOINT`). Spans: `fleetperm
   cluster the hub can reach; [results.md](results.md) shows the measured "Lease deleted → first DENY"
   latency. A cluster the hub cannot reach keeps the grant until it expires.
 - To stop a whole policy in an emergency, delete the `FleetAccessPolicy`. Its finalizer withdraws
-  every grant from every cluster, and every lease of the policy that has not expired becomes `Denied`
-  with reason `PolicyNotFound`. Expired leases stay `Expired`. Denied is terminal, so recreating the
-  policy does not revive those leases.
+  every grant from every cluster, and every lease that was evaluated against the policy becomes
+  `Denied` with reason `PolicyNotFound`; a lease already past its recorded expiry becomes `Expired`,
+  and expired leases stay `Expired`. Denied is terminal, so recreating the policy does not revive
+  those leases. A lease that was never evaluated (for example one applied just before the policy)
+  waits in `Pending` and would activate if the policy were created again, so delete such leases too.
 - Deleting only the policy's placement also withdraws every grant, and the policy reports
   `Degraded/PlacementNotFound`. Its leases are not denied, though. They go to phase `Pending`
   (`NoEligibleClusters`), and a lease that has not expired is delivered again if the placement comes

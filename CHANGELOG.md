@@ -40,6 +40,26 @@ All notable changes to this project are documented here. The format follows
   a checkout of the website, copies the MP4 videos and poster images there too.
 - The release workflow waits for the GitHub release to exist before it pushes images, instead of
   failing only at the final upload.
+- A lease created before its policy waits in `Pending` with reason `PolicyNotFound` and activates when
+  the policy appears, so GitOps tools can apply objects in any order. A lease that was evaluated
+  before its policy was deleted is still `Denied`, and one already past its recorded expiry is
+  `Expired`. The controller confirms that a policy is absent with an uncached read.
+- The rendered `XAccessPolicy` no longer carries the `fleetpermit.github.io/policy-generation`
+  annotation, so a policy edit that does not change a cluster's grants causes no rollout.
+- New CRD rules: a policy with `lease.required: false` may list at most 5 subjects, and `target.ref`
+  must be `XBackend` in `agentic.networking.x-k8s.io` or `Gateway` in `gateway.networking.k8s.io`.
+  Existing objects that break a rule are rejected only when their spec is next changed.
+- A cluster is `Ready` only when OCM's status feedback reports the content digest the hub delivered;
+  until then it is `AwaitingAcceptance`.
+- Delivery failures are retried after 1 s, then 2, 4, 8 s and so on up to 2 minutes while they
+  persist; any reconcile without a failure resets the delay.
+- Only `PlacementDecision` objects whose controller owner is the policy's `Placement` are used.
+- `ManagedCluster` updates reconcile policies only when the cluster's availability changes.
+- Lease status writes are conditional on the resource version that was read; a conflict is retried
+  and shows as a reconcile error.
+- `fleetpermit_placement_changes_total` counts the changes this controller process observes.
+- `status.clusters` on a policy holds at most 512 entries, with clusters that are not ready first;
+  the `Ready` message says how many are listed.
 
 ### Fixed
 
@@ -59,8 +79,8 @@ All notable changes to this project are documented here. The format follows
   frees up, for example when another lease expires.
 - Lease durations below 10 s are rejected at admission.
 - ManifestWork changes are now merge patches without an optimistic lock, so they no longer conflict
-  with the OCM work agent's continuous status writes. Delivery failures are retried after 1 second.
-  This removed the `Update` conflicts that delayed some activations.
+  with the OCM work agent's continuous status writes. This removed the `Update` conflicts that delayed
+  some activations.
 - After a restart or rolling update, the new controller pod waited for the old pod's leader-election
   lease to expire before reconciling anything, which delayed the first lease after a restart by
   several seconds. The leader now releases the lease when it shuts down. This was the cause of the
@@ -74,12 +94,33 @@ All notable changes to this project are documented here. The format follows
 - `fleetpermit_policy_propagation_seconds` was observed again, with the lease's full age, whenever a
   lease went back to Ready. It is now observed once per lease per controller process.
 - The controller's role no longer has `update` or `patch` on `toolaccessleases`, `update` on
-  `manifestworks` or on the status subresources, or `patch` on `fleetaccesspolicies`, which it did
-  not need.
+  `manifestworks`, on the status subresources or on `fleetaccesspolicies/finalizers`, or `patch` on
+  `fleetaccesspolicies`, which it did not need.
 - The YAML check now also covers `.yaml` workflow files and the demo manifests.
 - The inert policy is now validated against the upstream `XAccessPolicy` schema in the integration
   tests, like every other rendered shape.
 - `make demo-down` passes the lab's kubeconfig to kind, so it never touches the default kubeconfig.
+- Tracing could never start: the trace resource used a schema URL that conflicts with the SDK
+  default. It now starts when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and spans are flushed on exit.
+- A cluster that left the placement counted as withdrawn as soon as the deletion of its ManifestWork
+  was requested. It is now reported as `Revoking` until the ManifestWork is gone, expired or denied
+  leases keep listing it, and the revocation metric waits until then.
+- A cluster placed again while its previous ManifestWork was still being deleted was reported
+  `DeliveryFailed`. It is now `Delivering`, and delivery resumes once the deletion completes.
+- A policy with `lease.required: false` and more than 5 subjects dropped the extra standing grants
+  without saying so. The CRD now rejects such a policy, and standing grants that do not fit make the
+  policy `Degraded` and not `Ready`, with `CapacityExceeded` listing the clusters.
+- With more than 512 selected clusters, the policy status could not be written. The list is now
+  capped.
+- With `--watch-namespace`, ManifestWorks of policies in other namespaces caused endless reconcile
+  errors. Policies and events outside the namespace are now ignored.
+- `fleetpermit_lease_revocation_seconds` could record a sample of about 292 years for an expired lease
+  without an evaluated expiry, and `fleetpermit_placement_changes_total` over-counted.
+- The ManifestWorks of a policy deleted without its finalizer running were left behind. They are now
+  found by the `fleetpermit.github.io/policy` annotation and deleted, each on condition that its UID is
+  unchanged.
+- Tampered ManifestWork fields other than the manifests (delete option, update strategy, executor)
+  were not restored. They now are.
 
 ## [v0.1.0] - 2026-09-26
 

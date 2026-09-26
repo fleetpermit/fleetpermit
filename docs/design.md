@@ -120,7 +120,10 @@ of clusters that leave the placement, and of deleted policies, are deleted.
 When capacity is exceeded, grants are ordered deterministically: standing grants first, then leases by
 creation time and name. A lease that does not fit on some clusters is reported `Degraded` with reason
 `CapacityExceeded` on those clusters. A lease that fits on no cluster stays in phase `Pending` with the
-same reason, and activates when capacity frees up (v0.1.1). Leases are never dropped silently.
+same reason, and activates when capacity frees up (v0.1.1). A standing grant (`lease.required: false`)
+needs two rules per subject, so the API server accepts at most 5 subjects on such a policy, and a
+standing grant that still does not fit makes the policy `Degraded` and not `Ready`, with reason
+`CapacityExceeded` listing the clusters (v0.1.1). Grants are never dropped silently.
 
 ## ADR-5: API group `fleetpermit.github.io`
 
@@ -153,19 +156,30 @@ version can move to it.
   `read_secret` to the policy. Removing a tool or a subject from a policy, or lowering its
   `maxDuration`, denies the leases that no longer fit at once. Narrowing the placement does not deny
   anything; it only withdraws grants from the clusters that left.
-  Deleting a policy denies its leases that have not expired; expired leases stay `Expired`
-  (v0.1.1, `TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted`).
+  Deleting a policy denies its leases that have been evaluated against it; a lease already past its
+  recorded expiry becomes `Expired` instead, and an expired lease stays `Expired`
+  (v0.1.1, `TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted`,
+  `TestLeasePastItsRecordedExpiryIsExpiredWhenItsPolicyIsMissing`).
+- A lease created before its policy is not denied. It waits in `Pending` with reason `PolicyNotFound`
+  and activates when the policy appears, because GitOps tools apply objects in no fixed order
+  (v0.1.1, `TestLeaseCreatedBeforeItsPolicyActivates`). The controller confirms that the policy is
+  absent with an uncached read before it denies any lease or deletes any delivery.
 - A lease without `clusters` follows the placement as it changes, within its expiry. A lease with
   `clusters` only ever intersects them with the placement.
 
 ## ADR-7: Status that is safe to rely on
 
 A cluster is `Ready` only when the ManifestWork's `Applied` condition matches the current generation,
-the enforcement controller reported `Accepted` for the delivered object (read back through
-ManifestWork status feedback), and the managed cluster is reported available. The content digest on
-the hub must match what was delivered. Anything else is reported as `Progressing` or `Degraded`, with
-a reason such as `Delivering`, `Updating`, `AwaitingAcceptance`, `RejectedByEnforcement`,
-`ClusterUnavailable` or `Revoking`.
+the enforcement controller reported `Accepted` for the delivered object, OCM's status feedback reports
+the content digest the hub delivered (v0.1.1), and the managed cluster is reported available.
+Anything else is reported as `Progressing` or `Degraded`, with a reason such as `Delivering`,
+`Updating`, `AwaitingAcceptance`, `RejectedByEnforcement`, `ClusterUnavailable` or `Revoking`.
+
+A cluster that leaves the placement counts as withdrawn only when its ManifestWork is gone, not when
+its deletion is requested (v0.1.1). Until then the policy lists it as `Revoking`, expired or denied
+leases keep listing it, and the revocation metric is not observed. The rendered object carries no
+policy generation (v0.1.1), so a policy edit that does not change a cluster's grants causes no
+rollout.
 
 ## ADR-8: Mirror, don't import, the upstream types
 
@@ -185,8 +199,10 @@ read-modify-write `Update` from FleetPermit's informer cache then failed with a 
 conflict, and delivery waited for the next progress requeue.
 
 **Decision.** FleetPermit changes ManifestWork spec, labels and annotations with a JSON merge patch and
-no optimistic lock: it owns those fields, and the work agent owns status. Any delivery failure is
-retried after 1 second. The regression test `TestDeliveryIsNotBlockedByConcurrentStatusWrites`
+no optimistic lock: it owns those fields, and the work agent owns status. A delivery failure is
+retried after 1 second, then after 2, 4, 8 seconds and so on up to 2 minutes while it persists; any
+reconcile without a failure resets the delay (v0.1.1). If the ManifestWork's other spec fields (delete
+option, update strategy, executor) were changed on the hub, the same patch restores them. The regression test `TestDeliveryIsNotBlockedByConcurrentStatusWrites`
 rewrites status every 10 ms while a lease is created, and requires delivery within 3 seconds.
 
 **Result.** The switch to merge patches removed the `Update` conflicts, but slow first activations

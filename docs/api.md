@@ -28,13 +28,13 @@ Short name `fap`. The maximum authority that leases may activate.
 
 | Field | Type | Default | Validation / meaning |
 |---|---|---|---|
-| `spec.subjects[].spiffeID` | string | required | API server: 1–16 unique entries; 10–512 characters; `^spiffe://[a-z0-9._-]+(/[A-Za-z0-9._-]+)*$` (same as upstream) |
+| `spec.subjects[].spiffeID` | string | required | API server: 1–16 unique entries; 10–512 characters; `^spiffe://[a-z0-9._-]+(/[A-Za-z0-9._-]+)*$` (same as upstream). A policy with `lease.required: false` may list at most 5 subjects, because each standing subject needs two of the upstream limit of 10 rules per policy |
 | `spec.placement.provider` | enum | `ocm` | API server: only `ocm` |
 | `spec.placement.placementRef.name` | string | required | an OCM `Placement` in the same namespace; the controller reports `PlacementNotFound` if it is missing |
 | `spec.target.protocol` | enum | `MCP` | API server: only `MCP` |
 | `spec.target.namespace` | string | required | API server: a DNS label. The namespace of the target on each managed cluster |
 | `spec.target.ref.group` | enum | `agentic.networking.x-k8s.io` | API server: or `gateway.networking.k8s.io` |
-| `spec.target.ref.kind` | enum | `XBackend` | API server: or `Gateway` |
+| `spec.target.ref.kind` | enum | `XBackend` | API server: or `Gateway`. The pair must be `XBackend` in `agentic.networking.x-k8s.io` or `Gateway` in `gateway.networking.k8s.io` |
 | `spec.target.ref.name` | string | required | the backend or gateway name |
 | `spec.permissions[].tool` | string | required | API server: 1–16 unique tools; `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, at most 20 characters (upstream params limit). Re-checked by the renderer |
 | `spec.lease.required` | bool | `true` | `false` grants every permission to every subject without a lease (standing access) |
@@ -43,6 +43,10 @@ Short name `fap`. The maximum authority that leases may activate.
 | `spec.enforcement.provider` | enum | `kubernetes-agentic-networking` | API server: only value |
 | `spec.enforcement.failMode` | enum | `Closed` | API server: only value; an open mode is intentionally not offered |
 
+The standing-subject limit and the target group and kind rule are new in v0.1.1. A policy created
+earlier that breaks one of them stays in place; the API server applies the rules when its spec is
+next changed.
+
 Status:
 
 | Field | Meaning |
@@ -50,7 +54,7 @@ Status:
 | `conditions` | `Ready`, `Progressing`, `Degraded`, each with a reason |
 | `selectedClusters`, `readyClusters`, `clusterSummary` | for example `2/2` |
 | `activeLeases` | leases currently granting on at least one cluster |
-| `clusters[]` | `name`, `ready`, `reason`, `message`, `grants`, `contentDigest` |
+| `clusters[]` | `name`, `ready`, `reason`, `message`, `grants`, `contentDigest` for each selected cluster, and for each cluster that left the placement until its delivery is gone. At most 512 entries: beyond that, clusters that are not ready are listed first, the counts above stay exact, and the `Ready` message says how many clusters are listed |
 | `observedGeneration` | last processed generation |
 
 ```console
@@ -59,6 +63,22 @@ NAME              CLUSTERS   READY   ACTIVE-LEASES   AGE
 sre-remediation   2/2        True    1               10m
 ```
 
+Reasons in `status.clusters[]`:
+
+| Reason | Ready | Meaning |
+|---|---|---|
+| `Enforced` | yes | the work agent applied the current content, the enforcement controller accepted it, and OCM's status feedback reports the current content digest |
+| `Delivering` | no | the ManifestWork does not exist yet, or the cluster was placed again while its previous ManifestWork is still being deleted; delivery resumes once that deletion completes |
+| `Updating` | no | the cluster still holds a previous revision |
+| `Applying` | no | the work agent has not applied the current ManifestWork generation |
+| `AwaitingAcceptance` | no | the enforcement controller has not accepted the object yet, or OCM's status feedback has not reported the current content digest |
+| `Drifted` | no | the delivered object was deleted or changed on the cluster; FleetPermit has asked OCM to re-apply it |
+| `Revoking` | no | the cluster left the placement (or its grants are being withdrawn) and its ManifestWork still exists or is being deleted. A cluster that is offline can stay here indefinitely |
+| `DeliveryFailed` | no | rendering failed, the hub rejected the ManifestWork, or another policy owns a ManifestWork with the same name |
+| `ApplyFailed` | no | the work agent could not apply the ManifestWork |
+| `RejectedByEnforcement` | no | the enforcement controller rejected the object |
+| `ClusterUnavailable` | no | OCM reports the ManagedCluster unavailable, so the status may be stale |
+
 ## ToolAccessLease
 
 Short name `tal`. Activates a subset of a policy for a bounded time. The spec is immutable: the API
@@ -66,7 +86,7 @@ server rejects any change to it after creation.
 
 | Field | Type | Default | Validation / meaning |
 |---|---|---|---|
-| `spec.policyRef.name` | string | required | a `FleetAccessPolicy` in the same namespace. Controller: `Denied/PolicyNotFound` if it does not exist |
+| `spec.policyRef.name` | string | required | a `FleetAccessPolicy` in the same namespace. Controller: a lease created before its policy waits in `Pending` with reason `PolicyNotFound` and activates when the policy appears; see below for a policy that is deleted |
 | `spec.subject.spiffeID` | string | required | API server: SPIFFE ID pattern. Controller: must be one of the policy's subjects (`SubjectNotAllowed`) |
 | `spec.permissions[].tool` | string | required | API server: 1–16 unique tools, same pattern as the policy. Controller: must be a subset of the policy's permissions (`PermissionNotAllowed`) |
 | `spec.duration` | duration | policy `defaultDuration` | API server: at least `10s`. Controller: at most the policy's `maxDuration` (`DurationExceedsMaximum`). When omitted, see below |
@@ -106,14 +126,14 @@ Reasons on `ToolAccessLease` conditions. Rows marked "policy" are `FleetAccessPo
 | `LeaseActive` | Ready=True | granted and enforced on every target cluster |
 | `RollingOut` | Ready=False, Progressing=True | delivery or acceptance pending on some clusters |
 | `NoEligibleClusters` | Ready=False (phase Pending) | none of the requested clusters is currently placed |
-| `CapacityExceeded` | Degraded=True | the upstream rule limit is reached on the listed clusters. If that is every cluster, the lease is in phase `Pending` (Ready=False with the same reason), is not counted as active, and activates when capacity frees up |
+| `CapacityExceeded` | Degraded=True (policy: also Ready=False) | the upstream rule limit is reached on the listed clusters. For a lease that fits on no cluster, the lease is in phase `Pending` (Ready=False with the same reason), is not counted as active, and activates when capacity frees up. On a policy, it means standing grants did not fit on the listed clusters |
 | `ClustersFailed` | Degraded=True (policy: also Ready=False) | at least one cluster is `DeliveryFailed` (rendering failed, the hub rejected the ManifestWork, or another policy owns a ManifestWork with the same name), `ApplyFailed` (the work agent could not apply it), `RejectedByEnforcement` or `ClusterUnavailable`; the message lists the clusters |
-| `PolicyNotFound` | Denied=True | the referenced policy does not exist |
+| `PolicyNotFound` | Ready=False (phase Pending), or Denied=True | the referenced policy does not exist. A lease that has never been evaluated against its policy (for example one a GitOps tool applied before the policy) waits in `Pending` and activates when the policy appears. A lease that was evaluated and whose policy was then deleted is `Denied`, which is terminal; if it was already past its recorded expiry, it is `Expired` instead |
 | `SubjectNotAllowed` | Denied=True | the subject is not in the policy |
 | `PermissionNotAllowed` | Denied=True | a requested tool is not in the policy (the message lists them) |
 | `DurationExceedsMaximum` | Denied=True | the duration exceeds `maxDuration` |
 | `LeaseExpired` | Expired=True | past `expiresAt` |
-| `Revoking` | Progressing=True | grants of an expired or denied lease are still being withdrawn from the listed clusters. Also used as a per-cluster reason in the policy status |
+| `Revoking` | Progressing=True | grants of an expired or denied lease are still being withdrawn from the listed clusters, including clusters whose ManifestWork is still being deleted. The lease keeps listing them in `status.clusters` until the withdrawal is complete, which can take indefinitely while a cluster is offline |
 | `NoClustersSelected` | policy: Ready=True | the placement selects no clusters, so nothing is granted |
 | `PlacementNotFound` | policy: Ready=False, Degraded=True | the referenced Placement does not exist; every grant is withdrawn and the policy's leases wait in `Pending` (`NoEligibleClusters`) |
 
@@ -135,13 +155,17 @@ On `ManifestWork` (hub) and the rendered `XAccessPolicy` (managed clusters):
 | `fleetpermit.github.io/content-digest` | both | `sha256:…` of the rendered content |
 | `fleetpermit.github.io/work-digest` | ManifestWork | `sha256:…` of the generated ManifestWork spec |
 | `fleetpermit.github.io/resync` | ManifestWork (label) | set when FleetPermit asks OCM to re-apply after drift |
-| `fleetpermit.github.io/policy-generation` | XAccessPolicy | generation rendered |
 | `fleetpermit.github.io/cluster` | XAccessPolicy | target cluster |
 | `fleetpermit.github.io/lease-uids` | XAccessPolicy | comma-separated lease UIDs |
 | `fleetpermit.github.io/expires-at` | XAccessPolicy | latest expiry among the rendered grants |
 
 Both objects are named `fleetpermit-<policy name>-<hash>`, where the hash is the first 16 hex
-characters of the SHA-256 of the policy's `namespace/name`.
+characters of the SHA-256 of the policy's `namespace/name`. The rendered object does not carry the
+policy's generation, so a policy edit that does not change a cluster's grants changes neither its
+content digest nor its ManifestWork, and causes no rollout. If a policy disappears without its
+finalizer running (for example because the finalizer was removed by hand), the controller finds its
+ManifestWorks by the `fleetpermit.github.io/policy` annotation and deletes them, each on condition
+that its UID has not changed.
 
 ## Samples
 

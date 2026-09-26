@@ -181,9 +181,10 @@ incident-42   sre-remediation   2          2026-09-26T10:15:00Z   Active   1m
 ```
 
 A lease is `Denied`, with the reason in its conditions, if it asks for a tool the policy does not
-list, for longer than `maxDuration`, or for a subject the policy does not name. A lease whose policy
-was deleted is denied too. Provided only the controller can write `toolaccessleases/status`, denied
-and expired leases never become active again.
+list, for longer than `maxDuration`, or for a subject the policy does not name. A lease created before
+its policy waits in `Pending` and activates when the policy appears, so the apply order does not
+matter; a lease whose policy is deleted after it was evaluated is denied. Provided only the controller
+can write `toolaccessleases/status`, denied and expired leases never become active again.
 A lease's spec cannot be edited after creation.
 
 ## Security properties
@@ -199,8 +200,8 @@ A lease's spec cannot be edited after creation.
   lease stops working on time even with the hub disconnected ([scenario S11](docs/results.md)).
 - Leases can narrow tools, duration and clusters, never widen them. Tool names are restricted to a
   character set that cannot alter a CEL expression.
-- Every delivered object carries the source policy, its UID and generation, the cluster and a
-  deterministic SHA-256 content digest. Objects with lease grants also list the lease UIDs and the
+- Every delivered object carries the source policy and its UID, the cluster and a deterministic
+  SHA-256 content digest. Objects with lease grants also list the lease UIDs and the
   latest expiry, so a rule on a cluster can be traced back to its request.
 - On the hub, the controller reads OCM placement and cluster APIs and ManifestWorks, and writes only
   `ManifestWork` and its own objects. It has no access to the Secret, workload or RBAC APIs. Its

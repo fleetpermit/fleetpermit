@@ -25,8 +25,8 @@
    (scenario A1), so the anchor is part of the installation.
 4. Leases are subsets. A lease can narrow tools, duration and clusters, never widen them. Its spec
    cannot be edited after creation.
-5. Delivered rules are traceable. Every delivered object carries the source policy, its UID and
-   generation, the cluster and a SHA-256 content digest. Objects with lease grants also list the
+5. Delivered rules are traceable. Every delivered object carries the source policy and its UID, the
+   cluster and a SHA-256 content digest. Objects with lease grants also list the
    lease UIDs and the latest expiry, so a rule found on a cluster leads back to the request that
    created it.
 
