@@ -6,8 +6,11 @@ are the Go toolchain, operating-system tooling, Git, GitHub hosting and CI, and 
 dependencies of approved projects. Nothing in the runtime architecture depends on a cloud provider, an
 AI model vendor or a GitHub API.
 
-Exact versions are pinned in [`go.mod`](go.mod) (libraries) and [`demo/scripts/lib.sh`](demo/scripts/lib.sh)
-(lab components). See [docs/upstream-compatibility.md](docs/upstream-compatibility.md) for the APIs used.
+Libraries are pinned in [`go.mod`](go.mod) and lab components in
+[`demo/scripts/lib.sh`](demo/scripts/lib.sh). CI tools and build images have their own pins; the full
+list of places is in
+[docs/upstream-compatibility.md](docs/upstream-compatibility.md#keeping-up-with-upstream), together
+with the APIs used.
 
 ## Go modules (direct)
 
@@ -15,11 +18,11 @@ Exact versions are pinned in [`go.mod`](go.mod) (libraries) and [`demo/scripts/l
 |---|---|---|---|---|---|
 | `k8s.io/api`, `k8s.io/apimachinery`, `k8s.io/client-go` | v0.37.0 | Kubernetes | CNCF (Kubernetes) | Apache-2.0 | Kubernetes types and clients |
 | `sigs.k8s.io/controller-runtime` | v0.25.1 | controller-runtime | Kubernetes SIG API Machinery | Apache-2.0 | controller framework, envtest |
-| `sigs.k8s.io/yaml` | v1.6.0 | yaml | Kubernetes SIG | Apache-2.0 / MIT | tests |
+| `sigs.k8s.io/yaml` | v1.6.0 | yaml | Kubernetes SIG | MIT, BSD-3-Clause and Apache-2.0 (per file) | tests |
 | `open-cluster-management.io/api` | v1.3.0 | Open Cluster Management | CNCF Sandbox | Apache-2.0 | Placement, PlacementDecision, ManagedCluster, ManifestWork types |
 | `github.com/prometheus/client_golang` | v1.24.1 | Prometheus | CNCF Graduated | Apache-2.0 | metrics |
 | `go.opentelemetry.io/otel`, `/sdk`, `/exporters/otlp/otlptrace/otlptracehttp` | v1.46.0 | OpenTelemetry | CNCF Incubating | Apache-2.0 | tracing |
-| `github.com/modelcontextprotocol/go-sdk` | v1.8.0 | Model Context Protocol Go SDK | Linux Foundation (Agentic AI Foundation) | MIT | **demo tool server only** (`demo/tools/mcp-server`) |
+| `github.com/modelcontextprotocol/go-sdk` | v1.8.0 | Model Context Protocol Go SDK | Linux Foundation (Agentic AI Foundation) | Apache-2.0 and MIT: the project is moving from MIT to Apache-2.0, new contributions are Apache-2.0, and code whose authors have not agreed to relicense stays MIT; documentation is CC-BY-4.0 (see its `LICENSE` file) | demo tool server only (`demo/tools/mcp-server`) |
 
 Transitive dependencies are those of the modules above (for example `go.uber.org/zap` through
 controller-runtime's logger, and `google.golang.org/protobuf` through OpenTelemetry). `make sbom`
@@ -44,7 +47,7 @@ The kube-agentic-networking `XAccessPolicy` CRD v0.2.0 is vendored unmodified, f
 |---|---|---|---|
 | kind | v0.32.0 | Kubernetes SIG Testing | local clusters |
 | clusteradm | v1.3.1 | Open Cluster Management (CNCF) | OCM bootstrap |
-| Helm | v4.1 | CNCF Graduated | installing the chart |
+| Helm | any Helm 3 or later; `hack/install-helm.sh` installs v3.19.0 only when none is installed | CNCF Graduated | installing the chart |
 | MetalLB | v0.15.3 | CNCF Sandbox | gateway addresses on kind |
 | controller-gen, setup-envtest | v0.22.0, release-0.25 | Kubernetes SIGs | code generation, integration tests |
 | bom | v0.8.0 | Kubernetes SIG Release | SPDX SBOM |

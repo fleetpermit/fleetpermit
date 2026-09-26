@@ -2,20 +2,20 @@
 
 ## Reporting a vulnerability
 
-Please **do not** open a public issue for security problems.
+Do not open a public issue for a security problem.
 
-Report privately through GitHub: open the repository's **Security** tab and choose
-**Report a vulnerability** ([direct link](https://github.com/fleetpermit/fleetpermit/security/advisories/new)).
+Report it privately through GitHub: open the repository's Security tab and choose
+Report a vulnerability ([direct link](https://github.com/fleetpermit/fleetpermit/security/advisories/new)).
 Only the maintainers can see the report.
 
-Please include the affected version or commit, a description of the issue and its impact, and steps
+Include the affected version or commit, a description of the issue and its impact, and steps
 to reproduce (a failing test or a lab scenario is ideal).
 
 ## What to expect
 
 - An acknowledgement within 5 business days.
-- An assessment and, where confirmed, a fix plan within 30 days. Complex issues may take longer; we
-  will keep you informed.
+- An assessment and, where confirmed, a fix plan within 30 days. Complex issues may take longer, and
+  we will keep you informed.
 - Coordinated disclosure through a GitHub Security Advisory, crediting you unless you prefer otherwise.
 
 ## Scope

@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Narrated FleetPermit demo against the lab (make demo-up first).
-# Every ALLOWED/DENIED line is the result of a real MCP call through a real
-# gateway; nothing is printed that did not come from a command.
+# The "$ command" lines it prints are simplified for readability. They show
+# the equivalent kubectl or container command, while the script runs helper
+# functions with the lab's kubeconfig, contexts and inline manifests. Every
+# ALLOWED/DENIED line and every status output is real output from the run;
+# each ALLOWED/DENIED line is one MCP call through a real gateway.
 #
 # Usage: demo/run.sh [overview|security|disconnect]
 #   DEMO_LEASE_SECONDS  lease length for the overview (default 45)

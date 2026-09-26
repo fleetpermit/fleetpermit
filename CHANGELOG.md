@@ -6,25 +6,55 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Upgrade note: ManifestWork and XAccessPolicy names now end in 16 hex characters of a SHA-256 hash of
+  the policy's namespace and name. v0.1.0 used 8. A `helm upgrade` from v0.1.0 therefore renames the
+  delivered ManifestWork and XAccessPolicy objects. The controller removes the objects with the old
+  names, including on clusters that have left the placement and when a policy is deleted.
+
 ### Fixed
 
-- **Security:** a lease that omitted `duration` took the policy's *current* `defaultDuration` on every
-  reconcile, so raising the default extended already-issued leases. The first recorded expiry is now
-  pinned; later policy changes can only shorten or deny a lease (found in an independent code audit).
-- **Security:** FleetPermit could overwrite a ManifestWork owned by another policy if names collided.
-  Names now carry a 64-bit hash, foreign-owned works are never modified, and stale works from older
-  naming are pruned.
+- Security: a lease that omitted `duration` took the policy's current `defaultDuration` on every
+  reconcile, so raising the default extended leases that had already been issued. The first recorded
+  expiry is now pinned; later policy changes can only shorten or deny a lease. Found in code review.
+- Security: FleetPermit could overwrite a ManifestWork owned by another policy if their names
+  collided. Names now carry a 64-bit hash, and FleetPermit never modifies a ManifestWork that another
+  policy owns.
+- Withdrawing grants deleted the ManifestWork with the policy's current name only. It now deletes
+  every ManifestWork labelled with the policy's UID in that cluster namespace, whatever its name, so
+  deliveries under an earlier name are removed too. Each delete is conditional on the object's UID,
+  so a ManifestWork that belongs to another policy is never deleted, even if it has the same name.
+- A lease that fits on no cluster because the enforcement rule limit is reached everywhere is now in
+  phase `Pending` with `Degraded` reason `CapacityExceeded`, instead of `Active`. It is not counted
+  in `status.activeLeases` or the `fleetpermit_active_leases` gauge, and it activates when capacity
+  frees up, for example when another lease expires.
 - Lease durations below 10 s are rejected at admission.
 - ManifestWork changes are now merge patches without an optimistic lock, so they no longer conflict
-  with the OCM work agent's continuous status writes. That conflict occasionally delayed activation by
-  5 to 8 seconds. Delivery failures are retried after 1 second.
+  with the OCM work agent's continuous status writes. Delivery failures are retried after 1 second.
+  This removed the `Update` conflicts that delayed some activations. A first-activation delay of
+  several seconds still occurs in some runs; diagnostics place it inside OCM's delivery of the
+  change to one work agent, and it is an open investigation.
+- After a restart or rolling update, the new controller pod waited for the old pod's leader-election
+  lease to expire before reconciling anything, which delayed the first lease after a restart by
+  several seconds. The leader now releases the lease when it shuts down.
+- A lease that had already expired became `Denied` (with both `Expired` and `Denied` true) when its
+  policy was deleted. The first terminal state recorded now stays: an expired lease stays `Expired`.
 
 ### Added
 
+- Helm chart: when `workExecutor` is set, the chart grants the controller OCM's `execute-as`
+  permission for that one ServiceAccount, which OCM requires before it admits such a ManifestWork.
+- `make images` removes the Dockerfile's leftover builder-stage images after building, so repeated
+  lab builds with podman do not fill the container engine's disk.
 - Decision-matrix end-to-end scenario: 2 test agents × 3 clusters × 4 tools, with the lease active and
   then expired (48 real calls, expected and observed).
-- README recordings of real demo runs, the "five answers" overview, and an independent reproduction
-  on a GitHub-hosted Linux runner.
+- README recordings of real demo runs, the "five answers" overview, and a reproduction of the
+  end-to-end scenarios on a GitHub-hosted runner (Linux amd64).
+- Keyless Sigstore cosign signing of release images and assets in the release workflow, and a manual
+  `sign-release` workflow, which signed the v0.1.0 images and assets after publication.
+- OpenSSF Scorecard, CodeQL, fuzz tests, Dependabot updates, a security self-assessment and a
+  project maturity page.
 
 ## [v0.1.0] - 2026-09-26
 
@@ -33,8 +63,8 @@ First pre-release.
 ### Added
 
 - `FleetAccessPolicy` (ceiling: subjects, OCM placement, MCP target, permitted tools, lease limits,
-  fail-closed enforcement) and `ToolAccessLease` (immutable, time-bound subset) APIs, with
-  schema and CEL validation and kubectl printer columns.
+  `failMode: Closed`) and `ToolAccessLease` (immutable, time-bound subset) APIs, with schema and CEL
+  validation and kubectl printer columns.
 - Controller that resolves Open Cluster Management placements and renders one kube-agentic-networking
   `XAccessPolicy` per policy and cluster, with one CEL rule per lease that bounds `request.time`. It
   delivers them with `ManifestWork`, reads acceptance back through status feedback, and requests an

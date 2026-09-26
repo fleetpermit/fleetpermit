@@ -1,26 +1,32 @@
 # Security model
 
-<p align="center"><img src="assets/security-model.svg" alt="FleetPermit security model: trust boundaries between the hub, the OCM delivery path and managed-cluster enforcement, with fail-closed points" width="820"></p>
+<p align="center"><img src="assets/security-model.svg" alt="FleetPermit security model: trust boundaries between the hub, the OCM delivery path and managed-cluster enforcement, and the points where failures reduce authority" width="820"></p>
 
 ## Principles
 
-1. **Ceiling and activation are separate objects.** A `FleetAccessPolicy` defines the maximum. A
-   `ToolAccessLease` activates part of it for a bounded time. Kubernetes RBAC decides who may write each,
-   so a team can let on-call engineers create leases without letting them change the ceiling.
-2. **Enforce where the call happens.** Identity, tool and time are all checked by the gateway in
-   front of the tool server. The hub decides; it does not sit in the request path.
-3. **Fail closed.** Every error path results in less authority:
-   - no placement → nothing delivered;
-   - rendering error → that cluster's grants withdrawn;
-   - lease violates policy → `Denied`, terminal;
-   - lease expired → the gateway denies, and the controller withdraws;
-   - backend without any FleetPermit grant → the default-deny anchor denies;
-   - `failMode` accepts only `Closed`.
-4. **Subset only.** A lease can narrow tools, duration and clusters, never widen them. Its spec
+1. The ceiling and the activation are separate objects. A `FleetAccessPolicy` defines the maximum. A
+   `ToolAccessLease` activates part of it for a bounded time. Kubernetes RBAC decides who may write
+   each, so a team can let on-call engineers create leases without letting them change the ceiling.
+2. Authorization is enforced where the call happens. The gateway in front of the tool server checks
+   identity, tool and time. The hub makes decisions but does not sit in the request path.
+3. Errors never add authority. Each failure FleetPermit handles either withdraws grants or leaves them
+   to expire on time:
+   - no placement: nothing is delivered, and existing grants are withdrawn;
+   - rendering error: that cluster's grants are withdrawn;
+   - lease violates the policy: the lease is `Denied`, which is terminal;
+   - lease expired: the gateway denies, and the controller withdraws the grant;
+   - hub or controller unavailable: delivered leases still expire on time, and nothing new is granted.
+
+   Standing grants (`lease.required: false`) have no expiry; they last until the policy or its
+   placement changes. `failMode` accepts only `Closed`. A backend that holds no FleetPermit grant is
+   closed only when the default-deny anchor is installed next to it. Without the anchor,
+   kube-agentic-networking v0.2.0 enforces nothing on a target that has no `XAccessPolicy`
+   (scenario A1), so the anchor is part of the installation.
+4. Leases are subsets. A lease can narrow tools, duration and clusters, never widen them. Its spec
    cannot be edited after creation.
-5. **Traceable.** Every delivered object names its policy UID, policy generation, lease UIDs, cluster,
-   expiry and SHA-256 content digest, so a rule found on a cluster leads back to the request that
-   created it.
+5. Delivered rules are traceable. Every delivered object names its policy UID, policy generation,
+   lease UIDs, cluster, expiry and SHA-256 content digest, so a rule found on a cluster leads back to
+   the request that created it.
 
 ## Who can do what
 
@@ -31,8 +37,17 @@
 | FleetPermit controller | see [RBAC](operations.md#rbac) | read policies, leases, placements and clusters; write ManifestWork and status |
 | Agent workload | a SPIFFE identity | call tools that an active lease grants it |
 
-Grant `create` on `toolaccessleases`, not `update` (the spec is immutable anyway) and not `delete`,
-unless the principal should also be able to revoke early.
+Grant `create` on `toolaccessleases`. Do not grant `update` (the spec is immutable anyway), and grant
+`delete` only to principals that should be able to revoke early. Grant write access to
+`toolaccessleases/status` to the controller only: a lease without `spec.duration` keeps its expiry in
+`status.expiresAt`, and a principal that can write it could extend that lease up to the policy's
+`maxDuration`.
+
+The controller itself is a privileged identity on the hub. It has no access to Secrets, workloads or
+RBAC, but it can create and update `ManifestWork` in every managed-cluster namespace, and the OCM work
+agent applies that content on the managed cluster. The `--work-executor` flag makes the work agent
+apply FleetPermit's content as a restricted managed-cluster ServiceAccount; see
+[RBAC](operations.md#rbac).
 
 ## Identity
 
@@ -43,13 +58,17 @@ pod by Kubernetes Pod Certificates through the kube-agentic-networking signer
 identity issued on one cluster is trusted by the gateways of the others. In production, use a SPIFFE
 trust domain whose trust bundle is distributed to every gateway, for example through SPIRE federation.
 
-## Data plane limits (inherited, stated plainly)
+## Data plane limits
 
-- Tool matching is by exact tool name. Argument values are **not** matched in kube-agentic-networking
-  v0.2.0.
-- CEL rules apply to `tools/call`. Session methods are granted by a separate inline rule that is not
-  time-bounded in the data plane.
-- At most 5 `XAccessPolicy` objects per target and 10 rules per object upstream.
+These limits come from the upstream data plane that FleetPermit uses:
+
+- Tool matching is by exact tool name. kube-agentic-networking v0.2.0 does not match argument values.
+- A denied call is answered by the gateway with HTTP 200 and a JSON-RPC error with code 403.
+- Lease rules (CEL) apply to `tools/call` only. MCP base protocol traffic (`initialize`, `tools/list`,
+  `ping`, `completion/*`, `logging/*`, `notifications/*`, the event stream and session close) is
+  allowed per subject by a separate inline rule that has no time bound in the data plane. The
+  controller removes that rule when the subject has no grant left on the cluster.
+- Upstream allows at most 5 `XAccessPolicy` objects per target and 10 rules per object.
 - The upstream APIs (`XAccessPolicy` v1alpha1, `XBackend` v0alpha0) are experimental.
 
 See the [threat model](threat-model.md) for the full analysis and residual risks.

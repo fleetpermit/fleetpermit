@@ -1,7 +1,9 @@
 # Roadmap
 
-FleetPermit v0.1 is deliberately small. Items below are **plans, not commitments**, and are driven
-by user feedback and upstream progress.
+FleetPermit v0.1 is a complete, working release for one placement provider (Open Cluster
+Management), one enforcement provider (kube-agentic-networking) and one protocol (MCP). The items
+under Next and Later are enhancements. Their order and timing follow user feedback and upstream
+progress; they are not commitments.
 
 ## v0.1 (this release)
 
@@ -12,14 +14,16 @@ by user feedback and upstream progress.
 - Drift detection and immediate re-apply requests
 - Status with per-cluster readiness, Prometheus metrics, OpenTelemetry traces
 - Helm chart, reproducible 1 hub + 3 cluster lab, end-to-end scenarios, benchmarks
+- Signed container images and release assets (Sigstore cosign), with an SPDX SBOM per release
 
 ## Next
 
-- Track kube-agentic-networking releases, and adopt native expiry or argument-level MCP matching if
+- Follow kube-agentic-networking releases, and adopt native expiry or argument-level MCP matching if
   upstream adds them.
 - Faster detection of in-place edits to delivered objects, using OCM raw status feedback.
 - Guidance and tests for federated SPIFFE trust domains across clusters (for example SPIRE federation).
-- A published OCI Helm chart and signed images with provenance.
+- Build provenance attestations for images and release assets, and the Helm chart published as an
+  OCI artifact.
 
 ## Later (under consideration)
 

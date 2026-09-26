@@ -18,8 +18,8 @@ kubectl apply -f config/managed-cluster/work-agent-rbac.yaml
 kubectl apply -f config/managed-cluster/default-deny-anchor.yaml   # set namespace and backend name
 ```
 
-The anchor must exist on **every** cluster that runs the backend, including clusters that no
-placement currently selects. Without it, upstream enforces nothing on that backend
+The anchor must exist on every cluster that runs the backend, including clusters that no placement
+currently selects. Without it, upstream enforces nothing on that backend
 ([ADR-3](design.md#adr-3-default-deny-anchor)).
 
 ### Helm values
@@ -31,7 +31,7 @@ placement currently selects. Without it, upstream enforces nothing on that backe
 | `replicas` | `1` | more replicas are safe with leader election |
 | `leaderElection.enabled` | `true` | |
 | `watchNamespace` | `""` | restrict FleetPermit objects, placements and decisions to one namespace |
-| `workExecutor` | `""` | `namespace/name` of a managed-cluster ServiceAccount that the OCM work agent applies content as |
+| `workExecutor` | `""` | `namespace/name` of a managed-cluster ServiceAccount that the OCM work agent applies content as; see [RBAC](#rbac) |
 | `metrics.enabled` / `metrics.port` / `metrics.scrapeAnnotations` | `true` / `8080` / `true` | Prometheus endpoint and `prometheus.io/*` annotations |
 | `tracing.otlpEndpoint` | `""` | enables OpenTelemetry trace export over OTLP/HTTP |
 | `rbac.create`, `serviceAccount.*` | `true` | |
@@ -46,13 +46,20 @@ helm install fleetpermit charts/fleetpermit -n fleetpermit-system --create-names
   --set image.registry=registry.example.com --set image.repository=platform/fleetpermit-controller --set image.tag=v0.1.0
 ```
 
-Images are static Go binaries on `scratch`, run as UID 65532, and contain only the binary and CA
+Images are static Go binaries on `scratch`. They run as UID 65532 and contain only the binary and CA
 certificates.
 
 ## Verifying releases
 
-From v0.1.0 on, release images and assets are signed keylessly with Sigstore cosign by the release
-workflow. The workflow's GitHub OIDC identity is recorded in the public Rekor transparency log.
+Release images and assets are signed keylessly with Sigstore cosign, using the GitHub OIDC identity
+of the workflow that signed them. The signatures are recorded in the public Rekor transparency log.
+
+- v0.1.0 was published before signing was automated. Its images and assets were signed afterwards by
+  the manual [`sign-release`](../.github/workflows/sign-release.yaml) workflow.
+- Later releases are signed by the [`release`](../.github/workflows/release.yaml) workflow when the
+  tag is pushed.
+
+The identity pattern below accepts either workflow.
 
 ```sh
 # an image (use the digest from images.txt attached to the release)
@@ -66,7 +73,7 @@ cosign verify-blob fleetpermit-0.1.0.tgz --bundle fleetpermit-0.1.0.tgz.sigstore
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-Release tags and every commit are also signed and show as Verified on GitHub.
+Release tags and commits are also signed and show as Verified on GitHub.
 
 ## RBAC
 
@@ -82,9 +89,31 @@ Generated from the `+kubebuilder:rbac` markers in `internal/controller` ([`confi
 | `coordination.k8s.io` (release namespace) | leases | get, list, watch, create, update, patch, delete | leader election |
 | core, `events.k8s.io` (release namespace) | events | create, patch | events |
 
-The controller cannot read secrets, create workloads or modify RBAC. The e2e `RBAC` scenario checks this
-with `kubectl auth can-i`. On managed clusters, [`work-agent-rbac.yaml`](../config/managed-cluster/work-agent-rbac.yaml)
-extends the OCM work agent with `xaccesspolicies` only.
+On the hub, the controller cannot read Secrets, create workloads or modify RBAC. The e2e `RBAC`
+scenario checks this with `kubectl auth can-i`.
+
+The `manifestworks` permission is cluster-wide, so the controller can create and update
+`ManifestWork` in every managed-cluster namespace. The OCM work agent applies whatever a
+`ManifestWork` contains on its managed cluster. FleetPermit only ever renders `XAccessPolicy` objects,
+but a stolen controller credential could deliver other content. Treat the controller's ServiceAccount
+and namespace as privileged, and consider these controls:
+
+- Set `--work-executor` (Helm value `workExecutor`) to a managed-cluster ServiceAccount that may only
+  manage `xaccesspolicies`. The work agent then applies FleetPermit's content only as far as that
+  ServiceAccount's permissions allow, instead of with its own. OCM's hub webhook requires the
+  controller to hold the `execute-as` permission on `manifestworks` for that ServiceAccount. The Helm
+  chart adds a ClusterRole for exactly that ServiceAccount when `workExecutor` is set; if you deploy
+  without the chart, add the same rule yourself. The lab does not exercise this option.
+- Grant write access to `toolaccessleases/status` and `fleetaccesspolicies/status` only to the
+  controller. A lease without `spec.duration` keeps its expiry pinned in `status.expiresAt`, so a
+  principal that can write lease status could extend such a lease up to the policy's `maxDuration`
+  (never beyond it; see the [threat model](threat-model.md), T9).
+
+On managed clusters, [`work-agent-rbac.yaml`](../config/managed-cluster/work-agent-rbac.yaml) adds
+permissions to the OCM work agent. It is a ClusterRole labelled
+`open-cluster-management.io/aggregate-to-work: "true"`, which OCM aggregates into the work agent's
+role, and it grants every verb on `xaccesspolicies`. It does not restrict anything else the work agent
+can already do.
 
 ## Metrics
 
@@ -93,16 +122,17 @@ Served at `:8080/metrics`. No metric uses identities, lease names or cluster nam
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
 | `fleetpermit_reconcile_total` | counter | `result` = success, error | policy reconciliations |
-| `fleetpermit_reconcile_errors_total` | counter | — | reconciliations that returned an error |
-| `fleetpermit_active_leases` | gauge | — | leases granting on at least one cluster |
-| `fleetpermit_expired_leases_total` | counter | — | leases that transitioned to Expired |
+| `fleetpermit_reconcile_errors_total` | counter | none | reconciliations that returned an error |
+| `fleetpermit_active_leases` | gauge | none | leases granting on at least one cluster |
+| `fleetpermit_expired_leases_total` | counter | none | leases that transitioned to Expired |
 | `fleetpermit_denied_leases_total` | counter | `reason` | leases that transitioned to Denied |
-| `fleetpermit_authorized_clusters` | gauge | — | (policy, cluster) pairs holding grants |
-| `fleetpermit_policy_propagation_seconds` | histogram | — | lease creation → Ready on every target cluster |
-| `fleetpermit_lease_revocation_seconds` | histogram | — | expiry or denial → grants withdrawn everywhere (cleanup; the gateway denies at expiry) |
-| `fleetpermit_placement_changes_total` | counter | — | observed changes to a policy's selected clusters |
+| `fleetpermit_authorized_clusters` | gauge | none | (policy, cluster) pairs holding grants |
+| `fleetpermit_policy_propagation_seconds` | histogram | none | lease creation → Ready on every target cluster |
+| `fleetpermit_lease_revocation_seconds` | histogram | none | expiry or denial → grants withdrawn everywhere (cleanup; the gateway already denies at expiry) |
+| `fleetpermit_placement_changes_total` | counter | none | observed changes to a policy's selected clusters |
 
 Useful alerts:
+
 - `increase(fleetpermit_reconcile_errors_total[10m]) > 0`
 - `fleetpermit_active_leases > 0` for longer than your longest `maxDuration` (leases should come and go)
 - `histogram_quantile(0.95, rate(fleetpermit_policy_propagation_seconds_bucket[1h])) > 60`
@@ -117,17 +147,24 @@ Set `tracing.otlpEndpoint` (or `OTEL_EXPORTER_OTLP_ENDPOINT`). Spans: `fleetperm
 
 ## Day-2 operations
 
-- **Revoke early:** `kubectl delete toolaccesslease <name>`. The grant is withdrawn from reachable
-  clusters within about a second in the lab. Clusters that cannot be reached keep it until its expiry.
-- **Emergency stop for a policy:** delete the policy, or its placement. Every grant is withdrawn and
-  every lease is denied.
-- **Upgrade FleetPermit:** `helm upgrade`. State lives in the API, and a restart neither withdraws nor
-  re-creates grants.
-- **Upgrade upstream components:** see [upstream-compatibility.md](upstream-compatibility.md). Run
-  `make test-integration` with the new upstream CRD in `test/fixtures/upstream` and the e2e suite in the
-  lab before rolling out.
-- **OCM status sync interval:** the klusterlet's `workConfiguration.statusSyncInterval` controls how
-  quickly acceptance and drift are *reported* to the hub. It affects status and drift repair, not
-  enforcement. The lab sets 10s.
-- **Uninstall:** delete all `FleetAccessPolicy` objects first so their finalizers withdraw every grant,
-  then `helm uninstall fleetpermit`.
+- Revoke a lease early with `kubectl delete toolaccesslease <name>`. The grant is withdrawn from every
+  cluster the hub can reach; [results.md](results.md) shows the measured "Lease deleted → first DENY"
+  latency. A cluster the hub cannot reach keeps the grant until it expires.
+- To stop a whole policy in an emergency, delete the `FleetAccessPolicy`. Its finalizer withdraws
+  every grant from every cluster, and every lease that references the policy becomes `Denied` with
+  reason `PolicyNotFound`. Denied is terminal, so recreating the policy does not revive those leases.
+- Deleting only the policy's placement also withdraws every grant, and the policy reports
+  `Degraded/PlacementNotFound`. Its leases are not denied, though. They go to phase `Pending`
+  (`NoEligibleClusters`), and a lease that has not expired is delivered again if the placement comes
+  back. This pauses the policy and leaves its leases in place.
+- Upgrade FleetPermit with `helm upgrade`. State lives in the API, and a restart neither withdraws nor
+  re-creates grants. Upgrading from v0.1.0 renames delivered objects; see the
+  [changelog](../CHANGELOG.md).
+- Before upgrading upstream components, read [upstream-compatibility.md](upstream-compatibility.md).
+  Run `make test-integration` with the new upstream CRD in `test/fixtures/upstream`, and run the e2e
+  suite in the lab, before rolling out.
+- The klusterlet's `workConfiguration.statusSyncInterval` controls how quickly acceptance and drift
+  are reported to the hub. It affects status and drift repair, and has no effect on enforcement. The
+  lab sets 10s.
+- To uninstall, delete all `FleetAccessPolicy` objects first so their finalizers withdraw every grant,
+  then run `helm uninstall fleetpermit`.

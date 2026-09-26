@@ -1,8 +1,13 @@
 # Demo recordings
 
 Terminal recordings of real runs of [`demo/run.sh`](../run.sh) against the lab, captured with
-`make demo-videos` ([`hack/record-demos.sh`](../../hack/record-demos.sh)). Every line comes from a
-real command or a real MCP call through a real gateway.
+`make demo-videos` ([`hack/record-demos.sh`](../../hack/record-demos.sh)).
+
+The `$ command` lines in a recording are simplified for readability. They show the equivalent
+`kubectl` or container command (for example `kubectl create -f incident-42.yaml`), while the script
+runs helper functions with the lab's kubeconfig, contexts and inline manifests. Every ALLOWED and
+DENIED line, and every status output, is real output from that run. Each ALLOWED or DENIED line is
+one MCP call through a real gateway.
 
 | Recording | Shows |
 |---|---|

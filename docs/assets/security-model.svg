@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-labelledby="sec-t sec-d">
   <title id="sec-t">FleetPermit security model</title>
-  <desc id="sec-d">Two trust zones separated by the Open Cluster Management delivery channel. In the hub cluster, admission validation rejects malformed policies and failMode accepts only Closed (F1); the fleetpermit-controller runs with a least-privilege ServiceAccount limited to ManifestWork and placement reads, withdraws grants on render errors or a missing Placement (F2), and treats Denied and Expired leases as terminal (F3). ManifestWork carries rendered XAccessPolicy objects to the managed cluster, where the OCM work agent may only manage XAccessPolicy. On the managed cluster, Kubernetes Pod Certificates issue the agent's SPIFFE X.509 identity; the Envoy gateway verifies that identity over mTLS and evaluates tool name and request time, so expiry holds even with the hub unreachable (F4); a default-deny anchor closes any backend without a grant (F5); a wrong identity, an unlisted tool or an unselected cluster is denied (F6).</desc>
+  <desc id="sec-d">Two trust zones separated by the Open Cluster Management delivery channel. In the hub cluster, admission validation rejects malformed policies and failMode accepts only Closed (F1); the fleetpermit-controller has no access to Secrets, workloads or RBAC but can write ManifestWork for every managed cluster, withdraws grants on render errors or a missing Placement (F2), and treats Denied and Expired leases as terminal (F3). ManifestWork carries rendered XAccessPolicy objects to the managed cluster, where work-agent-rbac.yaml adds XAccessPolicy permissions to the OCM work agent. On the managed cluster, Kubernetes Pod Certificates issue the agent's SPIFFE X.509 identity; the Envoy gateway verifies that identity over mTLS and evaluates tool name and request time, so expiry holds even with the hub unreachable (F4); a default-deny anchor, when installed, closes a backend without a grant (F5); a wrong identity, an unlisted tool or an unselected cluster is denied (F6).</desc>
   <defs>
     <style>
       svg { fill: #E6EDF6; }
@@ -25,8 +25,8 @@
   </defs>
 
   <rect width="1200" height="660" rx="20" fill="#0C1728"/>
-  <text class="h1" x="40" y="52">Trust boundaries and fail-closed points</text>
-  <text class="sm" x="40" y="78">Every missing input, error or unreachable component results in less authority, never more.</text>
+  <text class="h1" x="40" y="52">Trust boundaries and failure handling</text>
+  <text class="sm" x="40" y="78">Errors never add authority: a failure withdraws grants or leaves them to expire on time.</text>
 
   <!-- Hub zone -->
   <rect class="zone" x="40" y="104" width="400" height="520" rx="16"/>
@@ -40,9 +40,9 @@
 
   <rect class="box" x="60" y="250" width="360" height="118" rx="10" stroke="#2DD4BF"/>
   <text class="h3 mono allow" x="78" y="278">fleetpermit-controller</text>
-  <text class="sm" x="78" y="304">ServiceAccount may write ManifestWork</text>
-  <text class="sm" x="78" y="323">and read placement; it cannot touch</text>
-  <text class="sm" x="78" y="342">pods, secrets, RBAC or namespaces</text>
+  <text class="sm" x="78" y="304">No access to Secrets, workloads or RBAC.</text>
+  <text class="sm" x="78" y="323">Can write ManifestWork for every managed</text>
+  <text class="sm" x="78" y="342">cluster: protect its credential</text>
   <g class="fc" transform="translate(362 272)"><circle r="14"/><text y="4">F2</text></g>
   <g class="fc" transform="translate(396 272)"><circle r="14"/><text y="4">F3</text></g>
 
@@ -69,7 +69,7 @@
 
   <rect class="box" x="540" y="154" width="290" height="78" rx="10"/>
   <text class="h3" x="558" y="182">OCM work agent</text>
-  <text class="sm" x="558" y="206">RBAC allows XAccessPolicy only</text>
+  <text class="sm" x="558" y="206">XAccessPolicy access added by</text>
   <text class="xs mono" x="558" y="224">work-agent-rbac.yaml</text>
 
   <rect class="box" x="850" y="154" width="290" height="78" rx="10"/>
@@ -107,12 +107,12 @@
     <g class="fc" transform="translate(14 14)"><circle r="12"/><text y="4">F4</text></g>
     <text class="xs" x="36" y="19">Hub unreachable: expiry is still enforced by the gateway</text>
     <g class="fc" transform="translate(14 50)"><circle r="12"/><text y="4">F5</text></g>
-    <text class="xs" x="36" y="55">No grant on a backend: the anchor denies every call</text>
+    <text class="xs" x="36" y="55">No grant on a backend: the anchor, if installed, denies</text>
     <g class="fc" transform="translate(14 86)"><circle r="12"/><text y="4">F6</text></g>
     <text class="xs" x="36" y="91">Wrong identity, unlisted tool or unselected cluster: DENY</text>
   </g>
 
   <path class="wire" d="M420 309H458V190H536" marker-end="url(#sec-a)"/>
   <text class="xs" x="475" y="250" text-anchor="middle" transform="rotate(-90 475 250)">ManifestWork</text>
-  <text class="xs" x="40" y="648">Dashed amber line: the trust boundary between the hub and each managed cluster. Only rendered XAccessPolicy objects cross it.</text>
+  <text class="xs" x="40" y="648">Dashed amber line: the trust boundary between the hub and each managed cluster. FleetPermit sends only rendered XAccessPolicy objects across it.</text>
 </svg>

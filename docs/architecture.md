@@ -4,7 +4,7 @@
 
 ## Components
 
-**On the hub** (a Kubernetes cluster running the Open Cluster Management hub):
+On the hub (a Kubernetes cluster running the Open Cluster Management hub):
 
 | Component | Role |
 |---|---|
@@ -12,7 +12,7 @@
 | OCM `Placement` / `PlacementDecision` | Selects managed clusters. FleetPermit only reads them. |
 | OCM `ManifestWork` | Carries one rendered `XAccessPolicy` per (policy, cluster) into the cluster's namespace on the hub. |
 
-**On each managed cluster:**
+On each managed cluster:
 
 | Component | Role |
 |---|---|
@@ -22,7 +22,7 @@
 | MCP tool server | The protected backend. |
 | Default-deny anchor | An `XAccessPolicy` that makes the backend deny by default. |
 
-There is no FleetPermit component on managed clusters ([ADR-2](design.md#adr-2-no-managed-cluster-agent-the-expiry-lives-in-the-data-plane)).
+FleetPermit runs no component on managed clusters ([ADR-2](design.md#adr-2-no-managed-cluster-agent-the-expiry-lives-in-the-data-plane)).
 
 ## Request path
 
@@ -37,8 +37,11 @@ Envoy gateway ── RBAC ──► ALLOW if (peer SPIFFE ID == rule source)
 MCP tool server
 ```
 
-A denied request receives a JSON-RPC error (`-32603`/`403`-style, "Access to this tool is forbidden")
-from the gateway. The call never reaches the tool server.
+The gateway answers a denied call itself, and the call never reaches the tool server. In
+kube-agentic-networking v0.2.0 the answer is HTTP 200 with a JSON-RPC error whose code is 403 and
+whose message is "Access to this tool is forbidden." (upstream issue #169). The lab's probe records
+it as `JSON-RPC error 403: Access to this tool is forbidden.` and also treats HTTP 401 and 403 as
+denials ([`demo/tools/probe/main.go`](../demo/tools/probe/main.go)).
 
 ## Control path
 
@@ -59,13 +62,13 @@ and at least every two minutes.
 
 ## What gets rendered
 
-For the `sre-remediation` policy with lease `incident-42` on `cluster-east`:
+For the `sre-remediation` policy in namespace `fleet`, with lease `incident-42`, on `cluster-east`:
 
 ```yaml
 apiVersion: agentic.networking.x-k8s.io/v1alpha1
 kind: XAccessPolicy
 metadata:
-  name: fleetpermit-sre-remediation-a46c9779
+  name: fleetpermit-sre-remediation-a46c9779b9dca599   # 16 hex characters of SHA-256("fleet/sre-remediation")
   namespace: mcp-tools
   labels:
     app.kubernetes.io/managed-by: fleetpermit
@@ -83,7 +86,7 @@ spec:
     - {group: agentic.networking.x-k8s.io, kind: XBackend, name: fleet-tools}
   action: Allow
   rules:
-    - name: session-3f2a9c1b0d                # MCP session methods for this subject
+    - name: session-c8735226c1                # MCP base protocol methods for this subject
       source: {type: SPIFFE, spiffe: spiffe://cluster.local/ns/agents/sa/sre-agent}
       authorization:
         type: Inline
@@ -96,13 +99,23 @@ spec:
           expression: "request.mcp.tool_name in ['restart_workload'] && request.time < timestamp('2026-09-26T10:15:00Z')"
 ```
 
+The object name is `fleetpermit-<policy name>-<hash>`, where the hash is the first 16 hex characters
+(64 bits) of the SHA-256 of the policy's `namespace/name`. The ManifestWork on the hub uses the same
+name. Rule names carry a 10-character hash of the subject or the lease UID.
+
+The session rule uses the upstream option `MATCH_BASE_PROTOCOL_METHODS`. In kube-agentic-networking
+v0.2.0 it allows `initialize`, `tools/list`, `ping`, every method under `completion/`, `logging/` and
+`notifications/`, HTTP `GET` for the event stream, and HTTP `DELETE` with an `mcp-session-id` header to
+close a session. It does not allow `tools/call`. Only the lease rules do, and upstream pairs every CEL
+rule with a `tools/call` match.
+
 With no active grant on a cluster, the same object carries a single rule named `no-active-grants`
-that can never match, so the backend stays closed and later grants are in-place updates
+that can never match. The backend stays closed, and later grants are in-place updates
 ([ADR-4](design.md#adr-4-one-xaccesspolicy-per-policy-cluster-one-rule-per-lease)).
 
 The content digest is SHA-256 over the canonical JSON of the policy UID, the cluster, the object's
-name and namespace, and its spec. It is deterministic: identical inputs give identical digests, and
-any change to tools, subject, expiry or target changes it.
+name and namespace, and its spec. Identical inputs give identical digests, and any change to tools,
+subject, expiry or target changes it.
 
 ## Status model
 
@@ -117,20 +130,21 @@ and becomes empty when revocation is complete.
 
 ## Failure behaviour
 
-| If this disappears… | Effect on authorization | Recovery |
+| If this disappears | Effect on authorization | Recovery |
 |---|---|---|
-| fleetpermit-controller | Existing grants keep working **until their expiry**, which Envoy enforces. New leases are not activated. | Restart; state is recomputed from the API. No grant is withdrawn or re-created by a restart (S15). |
-| OCM hub (whole hub cluster) | Same as above; managed clusters keep enforcing their last delivered grants and expire them on time (S11). | On reconnect, expired grants are withdrawn in about a second (S12). |
-| OCM work agent on a cluster | Delivered grants stay enforced and expire on time; changes (new leases, early revocation) are not applied on that cluster, and FleetPermit reports it `ClusterUnavailable` once OCM marks the cluster unavailable. | Work agent restart re-syncs. |
+| fleetpermit-controller | Existing grants keep working until their expiry, which Envoy enforces. New leases are not activated. | Restart; state is recomputed from the API. A restart neither withdraws nor re-creates grants (S15). |
+| OCM hub (whole hub cluster) | Same as above. Managed clusters keep enforcing their last delivered grants and expire them on time (S11). | On reconnect, the controller withdraws expired grants (S12 records how long it took). |
+| OCM work agent on a cluster | Delivered grants stay enforced and expire on time. Changes (new leases, early revocation) are not applied on that cluster, and FleetPermit reports it `ClusterUnavailable` once OCM marks the cluster unavailable. | A work agent restart re-syncs. |
 | Envoy gateway / agentic-networking controller | No path to the tool server; calls fail. A controller restart leaves Envoy's last configuration in place (S15). | Standard Deployment recovery. |
 | Identity issuance (Pod Certificates signer) | Callers without a valid certificate cannot complete mTLS and are rejected. | Signer recovery; certificates rotate automatically. |
-| Placement (deleted) | Every grant for the policy is withdrawn; the policy reports `Degraded/PlacementNotFound`. | Recreate the placement. |
-| Rendering fails for a cluster | That cluster's grants are withdrawn (fail closed) and the cluster is reported `DeliveryFailed`. | Fix the input. |
-| A delivered XAccessPolicy is deleted on a cluster | While missing, the anchor denies (loss of availability, not of safety). OCM reports the object missing at its next status sync; FleetPermit then asks the work agent to re-apply immediately (S10). | Automatic, within about one OCM status-sync interval. |
-| A delivered XAccessPolicy is edited in place on a cluster | If the content-digest annotation changes, handled like deletion. An edit that keeps the annotation is overwritten by the OCM work agent's periodic server-side re-apply (4–6 minutes in OCM v1.3). | Automatic. Write access to XAccessPolicy on a managed cluster is outside FleetPermit's trust boundary; see the threat model. |
+| The policy's `Placement` (deleted) | Every grant for the policy is withdrawn, and the policy reports `Degraded/PlacementNotFound`. Its leases go to phase `Pending` (`NoEligibleClusters`); they are not denied. | Recreate the placement. Leases that have not expired are delivered again. |
+| The `FleetAccessPolicy` (deleted) | The finalizer withdraws every grant, and every lease of the policy becomes `Denied/PolicyNotFound`, which is terminal. | Recreate the policy and create new leases. |
+| Rendering fails for a cluster | That cluster's grants are withdrawn and the cluster is reported `DeliveryFailed`. | Fix the input. |
+| A delivered XAccessPolicy is deleted on a cluster | While it is missing, the anchor denies: calls fail, and no extra access is granted. OCM reports the object missing at its next status sync, and FleetPermit then asks the work agent to re-apply immediately (S10). | Automatic, within about one OCM status-sync interval. |
+| A delivered XAccessPolicy is edited in place on a cluster | If the content-digest annotation changes, this is handled like deletion. An edit that keeps the annotation is overwritten by the OCM work agent's periodic server-side re-apply, every 4 to 6 minutes in OCM v1.3. | Automatic. Write access to XAccessPolicy on a managed cluster is outside FleetPermit's trust boundary; see the threat model. |
 
-Early revocation (deleting a lease before it expires) needs the hub path to be working. If the hub is
-unreachable, the lease remains usable on disconnected clusters until its expiry. Keep lease durations
+Early revocation (deleting a lease before it expires) needs a working path from the hub. If the hub is
+unreachable, the lease remains usable on disconnected clusters until it expires. Keep lease durations
 short for this reason.
 
 ## Observability

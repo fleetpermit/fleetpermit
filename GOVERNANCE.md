@@ -5,9 +5,9 @@ Linux Foundation or the Kubernetes project, although it builds on their technolo
 
 ## Roles
 
-- **Contributors**: anyone who opens an issue, reviews, or submits a pull request.
-- **Maintainers**: review and merge changes, triage issues, cut releases and handle security
-  reports. Current maintainers:
+- Contributors are anyone who opens an issue, reviews, or submits a pull request.
+- Maintainers review and merge changes, triage issues, cut releases and handle security reports.
+  Current maintainers:
 
   | Maintainer | GitHub |
   |---|---|
@@ -30,7 +30,7 @@ maintainers. The project aims for maintainers from more than one organisation as
 
 1. Vendor neutrality: architectural dependencies come from the Kubernetes, CNCF or Linux Foundation
    ecosystems ([DEPENDENCIES.md](DEPENDENCIES.md)).
-2. Fail closed.
+2. Errors never add authority: a failure withdraws grants or leaves them to expire on time.
 3. Claims in documentation must be backed by tests or measurements.
 
 ## Changes to this document
