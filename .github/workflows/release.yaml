@@ -1,0 +1,36 @@
+# Publishes images to ghcr.io and a Helm chart package when a v* tag is pushed.
+# Everything else about a release (tests, SBOM) is produced by make targets.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  packages: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Helm
+        run: ./hack/install-helm.sh
+      - name: Test
+        run: make test-unit test-integration
+      - name: Build and push multi-arch images
+        env:
+          REGISTRY: ghcr.io/${{ github.repository_owner }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ./hack/publish-images.sh "${REGISTRY}" "${TAG}"
+      - name: SBOM and chart
+        run: |
+          make sbom
+          helm package charts/fleetpermit --version "${GITHUB_REF_NAME#v}" --app-version "${GITHUB_REF_NAME}" -d dist
+      - name: Attach artifacts to the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber

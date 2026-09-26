@@ -1,0 +1,35 @@
+# Full multi-cluster lab on a GitHub runner: 1 OCM hub + 3 managed kind
+# clusters. Manual and weekly, because it takes about 20 minutes.
+name: E2E (multi-cluster lab)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 3 * * 0"
+permissions:
+  contents: read
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install lab tools
+        run: ./hack/install-lab-tools.sh
+      - name: make demo-up
+        run: make demo-up CONTAINER_ENGINE=docker
+      - name: make test-e2e
+        run: make test-e2e CONTAINER_ENGINE=docker
+      - name: make results
+        if: always()
+        run: make results
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: e2e-results
+          path: test-results/
+      - name: make demo-down
+        if: always()
+        run: make demo-down CONTAINER_ENGINE=docker

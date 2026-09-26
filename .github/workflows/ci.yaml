@@ -1,0 +1,54 @@
+# Every step calls a make target, so CI can be reproduced locally with the same command.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Helm
+        run: ./hack/install-helm.sh
+      - name: make verify
+        run: make verify
+      - name: make vulncheck
+        run: make vulncheck
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: make test-unit
+        run: make test-unit
+      - name: make test-integration
+        run: make test-integration
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: test-output
+          path: .work/test/
+          retention-days: 14
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: make images (podman)
+        run: make images CONTAINER_ENGINE=podman
+      - name: Images run
+        run: |
+          podman run --rm localhost/fleetpermit/fleetpermit-controller:dev --version
+          podman image ls localhost/fleetpermit

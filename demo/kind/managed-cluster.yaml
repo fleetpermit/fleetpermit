@@ -1,0 +1,14 @@
+# kind configuration for FleetPermit managed clusters.
+# Kubernetes Pod Certificates (KEP-4317) issue the SPIFFE identities that the
+# kube-agentic-networking reference implementation authenticates.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+featureGates:
+  PodCertificateRequest: true
+  ClusterTrustBundle: true
+  ClusterTrustBundleProjection: true
+runtimeConfig:
+  certificates.k8s.io/v1beta1/podcertificaterequests: "true"
+  certificates.k8s.io/v1beta1/clustertrustbundles: "true"
+nodes:
+  - role: control-plane
