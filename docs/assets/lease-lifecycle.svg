@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="life-t life-d">
   <title id="life-t">ToolAccessLease lifecycle</title>
-  <desc id="life-d">A new ToolAccessLease starts Pending while the controller evaluates it. If the subject, tools or duration violate the policy, it becomes Denied, which is terminal. Otherwise it becomes Active once a grant is rendered on at least one selected cluster; the grant is a CEL rule with request.time before the expiry timestamp. At expiresAt the Envoy gateway stops honouring the grant and the lease becomes Expired, which is also terminal, and the controller withdraws the ManifestWork. Deleting an Active lease revokes it on every cluster. expiresAt equals creationTimestamp plus duration, is computed once and is never extended.</desc>
+  <desc id="life-d">A new ToolAccessLease starts Pending while the controller evaluates it. If the subject, tools or duration violate the policy, it becomes Denied, which is terminal. Otherwise it becomes Active once a grant is rendered on at least one selected cluster; the grant is a CEL rule with request.time before the expiry timestamp. At expiresAt the Envoy gateway stops honouring the grant and the lease becomes Expired, which is also terminal, and the controller withdraws the grant. Deleting an Active lease revokes it on every cluster. expiresAt equals creationTimestamp plus duration, is computed once and is never extended.</desc>
   <defs>
     <style>
       svg { fill: #E6EDF6; }
@@ -62,7 +62,7 @@
   <text class="st lease" x="932" y="150">Expired</text>
   <text class="sm" x="932" y="178">Envoy denies at expiresAt;</text>
   <text class="sm" x="932" y="197">the controller withdraws</text>
-  <text class="sm" x="932" y="216">the ManifestWork</text>
+  <text class="sm" x="932" y="216">the grant</text>
 
   <!-- Pending → Denied -->
   <path class="wire" d="M225 236V318" marker-end="url(#life-a)"/>

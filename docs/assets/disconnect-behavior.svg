@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="dis-t dis-d">
   <title id="dis-t">Expiry with the hub unreachable</title>
-  <desc id="dis-d">Three stages. One: the hub is connected, lease incident-42 is Active, the grant XAccessPolicy is on cluster-east and restart_workload is allowed. Two: the hub becomes unreachable before the lease expires; the grant is still present on cluster-east, but once request.time reaches the expiry timestamp its CEL rule no longer matches, so the Envoy gateway denies the call without any help from the hub. Three: the hub reconnects, marks the lease Expired and withdraws the ManifestWork; the grant is removed, the default-deny anchor remains and calls stay denied. Expiry uses each managed cluster's clock, so clock skew shifts the moment of denial.</desc>
+  <desc id="dis-d">Three stages. One: the hub is connected, lease incident-42 is Active, the grant XAccessPolicy is on cluster-east and restart_workload is allowed. Two: the hub becomes unreachable before the lease expires; the grant is still present on cluster-east, but once request.time reaches the expiry timestamp its CEL rule no longer matches, so the Envoy gateway denies the call without any help from the hub. Three: the hub reconnects, marks the lease Expired and withdraws the grant; the grant is removed, the default-deny anchor remains and calls stay denied. Expiry uses each managed cluster's clock, so clock skew shifts the moment of denial.</desc>
   <defs>
     <style>
       svg { fill: #E6EDF6; }
@@ -42,7 +42,7 @@
     <text class="sm allow" x="36" y="118">Lease incident-42 is Active</text>
 
     <path d="M180 136V206" stroke="#2DD4BF" stroke-width="2.2" fill="none" marker-end="url(#dis-t2)"/>
-    <text class="xs" x="192" y="176">ManifestWork</text>
+    <text class="xs" x="192" y="176">grant</text>
 
     <rect class="box" x="20" y="210" width="320" height="158" rx="10" stroke="#2DD4BF"/>
     <text class="h3 mono" x="36" y="238">cluster-east</text>
@@ -95,7 +95,7 @@
     <text class="sm lease" x="36" y="118">Lease marked Expired</text>
 
     <path d="M180 136V206" stroke="#7F93B0" stroke-width="2" fill="none" marker-end="url(#dis-a)"/>
-    <text class="xs" x="192" y="168">ManifestWork</text>
+    <text class="xs" x="192" y="168">grant</text>
     <text class="xs" x="192" y="185">withdrawn</text>
 
     <rect class="box" x="20" y="210" width="320" height="158" rx="10"/>
