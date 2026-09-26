@@ -96,7 +96,7 @@ var _ placement.Provider = &Provider{}
 // holds at most one FleetPermit ManifestWork per policy.
 func WorkName(p *fpv1.FleetAccessPolicy) string {
 	name := "fleetpermit-" + p.Name
-	suffix := "-" + digest.Short(p.Namespace+"/"+p.Name, 8)
+	suffix := "-" + digest.Short(p.Namespace+"/"+p.Name, 16)
 	if len(name)+len(suffix) > 63 {
 		name = strings.TrimRight(name[:63-len(suffix)], "-.")
 	}
@@ -148,10 +148,15 @@ func (o *Provider) Apply(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster
 		if err := o.Client.Create(ctx, desired); err != nil {
 			return fmt.Errorf("creating ManifestWork %s/%s: %w", cluster, desired.Name, err)
 		}
-		return nil
+		return o.pruneStale(ctx, p, cluster, desired.Name)
 	}
 	if err != nil {
 		return fmt.Errorf("getting ManifestWork %s/%s: %w", cluster, desired.Name, err)
+	}
+	// Never take over a ManifestWork that belongs to another policy: refuse
+	// and report instead of overwriting another tenant's grants.
+	if owner := current.Labels[LabelPolicyUID]; owner != string(p.UID) {
+		return fmt.Errorf("ManifestWork %s/%s exists and is not owned by this policy (owner policy UID %q); refusing to overwrite it", cluster, desired.Name, owner)
 	}
 	if !current.DeletionTimestamp.IsZero() {
 		return fmt.Errorf("ManifestWork %s/%s is still being deleted; retrying", cluster, desired.Name)
@@ -183,6 +188,24 @@ func (o *Provider) Apply(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster
 	if err := o.Client.Patch(ctx, &current, client.MergeFrom(base)); err != nil {
 		return fmt.Errorf("updating ManifestWork %s/%s: %w", cluster, desired.Name, err)
 	}
+	return o.pruneStale(ctx, p, cluster, desired.Name)
+}
+
+// pruneStale deletes this policy's ManifestWorks in the cluster namespace
+// whose name is not the current one (for example after a naming change), so
+// a cluster never holds two deliveries for one policy.
+func (o *Provider) pruneStale(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster, keep string) error {
+	var works workv1.ManifestWorkList
+	if err := o.Client.List(ctx, &works, client.InNamespace(cluster), client.MatchingLabels{LabelPolicyUID: string(p.UID)}); err != nil {
+		return fmt.Errorf("listing ManifestWorks in %s: %w", cluster, err)
+	}
+	for i := range works.Items {
+		if w := &works.Items[i]; w.Name != keep && w.DeletionTimestamp.IsZero() {
+			if err := o.Client.Delete(ctx, w); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("deleting stale ManifestWork %s/%s: %w", cluster, w.Name, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -205,7 +228,7 @@ func (o *Provider) Observe(ctx context.Context, p *fpv1.FleetAccessPolicy) (map[
 	out := make(map[string]placement.ClusterState, len(works.Items))
 	for i := range works.Items {
 		w := &works.Items[i]
-		if !w.DeletionTimestamp.IsZero() {
+		if !w.DeletionTimestamp.IsZero() || w.Name != WorkName(p) {
 			continue
 		}
 		st := WorkState(w)

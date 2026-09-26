@@ -53,7 +53,7 @@ Short name `tal`. Activates a subset of a policy for a bounded time. **The spec 
 | `spec.policyRef.name` | string | required | a `FleetAccessPolicy` in the same namespace |
 | `spec.subject.spiffeID` | string | required | must be one of the policy's subjects |
 | `spec.permissions[].tool` | string | required | 1–16; must be a subset of the policy's permissions |
-| `spec.duration` | duration | policy `defaultDuration` | must be positive and at most the policy's `maxDuration` |
+| `spec.duration` | duration | policy `defaultDuration` | at least `10s` and at most the policy's `maxDuration`; when omitted, the default in effect at first evaluation is pinned through `status.expiresAt` |
 | `spec.clusters[]` | []string | all placed clusters | narrows the placement; clusters outside it receive nothing |
 | `spec.reason` | string | — | free text for audit, at most 256 characters |
 

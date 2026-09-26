@@ -73,7 +73,7 @@ var _ enforcement.Renderer = Renderer{}
 // namespace/name and bounded to 63 characters.
 func ObjectName(policyNamespace, policyName string) string {
 	name := "fleetpermit-" + policyName
-	suffix := "-" + digest.Short(policyNamespace+"/"+policyName, 8)
+	suffix := "-" + digest.Short(policyNamespace+"/"+policyName, 16)
 	if len(name)+len(suffix) > 63 {
 		name = strings.TrimRight(name[:63-len(suffix)], "-.")
 	}

@@ -208,3 +208,41 @@ func TestEvaluateUsesBuiltInDefaultsWhenUnset(t *testing.T) {
 		t.Fatalf("the built-in maximum must still apply, got %+v", d)
 	}
 }
+
+func TestEvaluatePinsDefaultDurationOnceRecorded(t *testing.T) {
+	p := policy()
+	l := lease() // no spec.duration: uses the policy default (15m)
+	first := Evaluate(p, l, placed, created)
+	if want := created.Add(15 * time.Minute); !first.ExpiresAt.Equal(want) {
+		t.Fatalf("first expiry %s, want %s", first.ExpiresAt, want)
+	}
+	// The controller records the expiry in status.
+	recorded := metav1.NewTime(first.ExpiresAt)
+	l.Status.ExpiresAt = &recorded
+
+	// Raising the policy default must not extend the issued lease.
+	p.Spec.Lease.DefaultDuration = dur(29 * time.Minute)
+	again := Evaluate(p, l, placed, created.Add(20*time.Minute))
+	if !again.ExpiresAt.Equal(first.ExpiresAt) {
+		t.Fatalf("expiry moved from %s to %s after the policy default changed", first.ExpiresAt, again.ExpiresAt)
+	}
+	if !again.Expired || again.Active() {
+		t.Fatalf("the lease must be expired at +20m under its original 15m duration: %+v", again)
+	}
+
+	// Lowering the maximum below the pinned duration denies it (narrowing only).
+	p.Spec.Lease.MaxDuration = dur(10 * time.Minute)
+	p.Spec.Lease.DefaultDuration = dur(5 * time.Minute)
+	if d := Evaluate(p, l, placed, created); !d.Denied || d.Reason != fpv1.ReasonDurationExceedsMax {
+		t.Fatalf("a pinned duration above a lowered maximum must be denied, got %+v", d)
+	}
+}
+
+func TestEvaluateForgedStatusCannotExceedMaximum(t *testing.T) {
+	l := lease()
+	forged := metav1.NewTime(created.Add(48 * time.Hour))
+	l.Status.ExpiresAt = &forged
+	if d := Evaluate(policy(), l, placed, created); !d.Denied || d.Reason != fpv1.ReasonDurationExceedsMax {
+		t.Fatalf("a recorded expiry beyond the policy maximum must be denied, got %+v", d)
+	}
+}

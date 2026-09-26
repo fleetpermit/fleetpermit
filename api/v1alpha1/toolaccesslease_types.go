@@ -51,8 +51,11 @@ type ToolAccessLeaseSpec struct {
 	Permissions []Permission `json:"permissions"`
 
 	// Duration of the lease, measured from its creation. Defaults to the
-	// policy's defaultDuration and must not exceed its maxDuration.
+	// policy's defaultDuration and must not exceed its maxDuration. When it is
+	// omitted, the default in effect at the lease's first evaluation is pinned
+	// through status.expiresAt; later policy changes cannot extend it.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('10s')",message="duration must be at least 10s"
 	Duration *metav1.Duration `json:"duration,omitempty"`
 
 	// Clusters optionally narrows the policy's placement to the named

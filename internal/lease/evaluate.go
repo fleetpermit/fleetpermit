@@ -98,8 +98,16 @@ func Evaluate(policy *fpv1.FleetAccessPolicy, l *fpv1.ToolAccessLease, placed []
 	d.Tools = sortedUnique(tools)
 
 	d.Duration = policy.DefaultDuration()
-	if l.Spec.Duration != nil {
+	switch {
+	case l.Spec.Duration != nil:
 		d.Duration = l.Spec.Duration.Duration
+	case l.Status.ExpiresAt != nil:
+		// A lease that relies on the policy default keeps the duration it was
+		// first granted: the recorded expiry pins it, so a later change to the
+		// policy's defaultDuration can never extend an issued lease. The
+		// maximum check below still applies, so a pinned value can only be
+		// cut short by the policy, never lengthened.
+		d.Duration = l.Status.ExpiresAt.Sub(l.CreationTimestamp.Time)
 	}
 	maxDuration := policy.MaxDuration()
 	if d.Duration <= 0 {

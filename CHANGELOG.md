@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Security:** a lease that omitted `duration` took the policy's *current* `defaultDuration` on every
+  reconcile, so raising the default extended already-issued leases. The first recorded expiry is now
+  pinned; later policy changes can only shorten or deny a lease (found in an independent code audit).
+- **Security:** FleetPermit could overwrite a ManifestWork owned by another policy if names collided.
+  Names now carry a 64-bit hash, foreign-owned works are never modified, and stale works from older
+  naming are pruned.
+- Lease durations below 10 s are rejected at admission.
 - ManifestWork changes are now merge patches without an optimistic lock, so they no longer conflict
   with the OCM work agent's continuous status writes. That conflict occasionally delayed activation by
   5 to 8 seconds. Delivery failures are retried after 1 second.

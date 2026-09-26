@@ -117,7 +117,13 @@ API version can move to it.
 - `ToolAccessLease.spec` is immutable (a CEL `self == oldSelf` rule), so every grant corresponds to
   exactly one reviewed request.
 - Expiry is `metadata.creationTimestamp + duration`. The creation timestamp is assigned by the API
-  server, so the requester cannot choose it.
+  server, so the requester cannot choose it. A lease that omits `duration` gets the policy's
+  `defaultDuration` in effect when it is first evaluated. That expiry is then pinned through
+  `status.expiresAt`, so raising the policy default later cannot extend an issued lease; lowering the
+  policy maximum below it denies the lease. (This was an audit finding; see
+  `TestPolicyDefaultChangeCannotExtendLease`.)
+- ManifestWork and XAccessPolicy names carry a 64-bit hash of the policy's namespace and name.
+  FleetPermit refuses to modify a ManifestWork owned by another policy (`TestForeignManifestWorkIsNotOverwritten`).
 - `Denied` and `Expired` are terminal. A lease denied for asking for `read_secret` does not become
   active later if someone adds `read_secret` to the policy. A policy that *narrows* immediately denies
   the leases it no longer covers.

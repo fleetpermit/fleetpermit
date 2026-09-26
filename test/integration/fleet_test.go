@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
@@ -765,5 +766,100 @@ func TestDeliveryIsNotBlockedByConcurrentStatusWrites(t *testing.T) {
 	})
 	if took := time.Since(start); took > 3*time.Second {
 		t.Fatalf("delivery took %s under concurrent status writes; conflicts are delaying it", took)
+	}
+}
+
+// TestPolicyDefaultChangeCannotExtendLease is a regression test for an audit
+// finding: a lease that relies on the policy's defaultDuration must keep the
+// expiry it was issued with when the policy default is later raised.
+func TestPolicyDefaultChangeCannotExtendLease(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "pin-default", []string{"pd-east"}, []string{"pd-east"})
+	p := f.policy("sre-remediation", func(p *fpv1.FleetAccessPolicy) {
+		p.Spec.Lease.DefaultDuration = &metav1.Duration{Duration: 2 * time.Minute}
+	})
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	l := f.lease("uses-default", p.Name, time.Minute, "restart_workload")
+	l.Spec.Duration = nil
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	active := waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	issued := active.Status.ExpiresAt.Time
+	if want := active.CreationTimestamp.Add(2 * time.Minute); !issued.Equal(want) {
+		t.Fatalf("issued expiry %s, want %s", issued, want)
+	}
+
+	var cur fpv1.FleetAccessPolicy
+	if err := k8s.Get(ctx, clientKey(p), &cur); err != nil {
+		t.Fatal(err)
+	}
+	cur.Spec.Lease.DefaultDuration = &metav1.Duration{Duration: 9 * time.Minute}
+	if err := k8s.Update(ctx, &cur); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Second)
+	poke(t, l)
+	time.Sleep(time.Second)
+	got := getLease(t, l)
+	if !got.Status.ExpiresAt.Time.Equal(issued) {
+		t.Fatalf("raising the policy default moved the lease expiry from %s to %s", issued, got.Status.ExpiresAt.Time)
+	}
+	body := manifestJSON(works(t, p)["pd-east"])
+	if !strings.Contains(body, issued.UTC().Format(time.RFC3339)) {
+		t.Fatalf("the rendered rule no longer carries the issued expiry %s: %s", issued.UTC().Format(time.RFC3339), body)
+	}
+}
+
+// TestForeignManifestWorkIsNotOverwritten is a regression test for an audit
+// finding: FleetPermit must never take over a ManifestWork owned by another
+// policy, even if the name matches.
+func TestForeignManifestWorkIsNotOverwritten(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "ownership", []string{"ow-east"}, []string{"ow-east"})
+	p := f.policy("sre-remediation")
+	foreign := &workv1.ManifestWork{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ow-east", Name: ocm.WorkName(p),
+			Labels: map[string]string{ocm.LabelManagedBy: ocm.ManagedByValue, ocm.LabelPolicyUID: "someone-else"},
+		},
+		Spec: workv1.ManifestWorkSpec{Workload: workv1.ManifestsTemplate{Manifests: []workv1.Manifest{{
+			RawExtension: runtime.RawExtension{Raw: []byte(`{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"foreign","namespace":"default"}}`)},
+		}}}},
+	}
+	if err := k8s.Create(ctx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "the cluster to be reported as a delivery failure", func() error {
+		var got fpv1.FleetAccessPolicy
+		if err := k8s.Get(ctx, clientKey(p), &got); err != nil {
+			return err
+		}
+		for _, c := range got.Status.Clusters {
+			if c.Name == "ow-east" && c.Reason == "DeliveryFailed" && strings.Contains(c.Message, "not owned by this policy") {
+				return nil
+			}
+		}
+		return fmt.Errorf("clusters %+v", got.Status.Clusters)
+	})
+	var after workv1.ManifestWork
+	if err := k8s.Get(ctx, clientKey(foreign), &after); err != nil {
+		t.Fatal(err)
+	}
+	if after.Labels[ocm.LabelPolicyUID] != "someone-else" || !strings.Contains(string(after.Spec.Workload.Manifests[0].Raw), "foreign") {
+		t.Fatalf("the foreign ManifestWork was modified: %+v", after)
 	}
 }

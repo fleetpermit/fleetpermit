@@ -147,6 +147,12 @@ func TestAPILeaseValidationAndImmutability(t *testing.T) {
 		t.Fatal("lease without permissions must be rejected")
 	}
 
+	short := base("too-short")
+	short.Spec.Duration = &metav1.Duration{Duration: 5 * time.Second}
+	if err := k8s.Create(ctx, short); err == nil || !strings.Contains(err.Error(), "at least 10s") {
+		t.Fatalf("a 5s lease must be rejected at admission, got %v", err)
+	}
+
 	l := base("immutable")
 	if err := k8s.Create(ctx, l); err != nil {
 		t.Fatal(err)
