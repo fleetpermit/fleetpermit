@@ -201,6 +201,8 @@ step_workloads() {
 step_fleetpermit() {
   say "Installing FleetPermit on the hub with Helm"
   local repo="${FP_CONTROLLER_IMAGE%:*}" tag="${FP_CONTROLLER_IMAGE##*:}"
+  # Helm installs CRDs only on first install and never upgrades them.
+  hub apply --server-side --force-conflicts -f "${FP_ROOT}/charts/fleetpermit/crds/" >/dev/null
   helm upgrade --install fleetpermit "${FP_ROOT}/charts/fleetpermit" \
     --kubeconfig "${FP_KUBECONFIG}" --kube-context "$(ctx "${FP_HUB_NAME}")" \
     --namespace "${FP_SYSTEM_NAMESPACE}" --create-namespace \
