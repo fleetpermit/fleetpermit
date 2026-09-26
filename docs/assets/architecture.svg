@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" role="img" aria-labelledby="arch-t arch-d">
+  <title id="arch-t">FleetPermit architecture</title>
+  <desc id="arch-d">The hub cluster runs the Open Cluster Management hub (Placement, PlacementDecision and ManifestWork APIs) and the fleetpermit-controller, which reads FleetAccessPolicy and ToolAccessLease objects. The controller renders one XAccessPolicy per policy and cluster and delivers it with one ManifestWork per selected cluster. cluster-east and cluster-west (env=production) receive the grant. cluster-edge (env=staging) is not selected, receives nothing, and its default-deny anchor denies every call. Inside a managed cluster, the OCM klusterlet work agent applies the XAccessPolicy, the kube-agentic-networking controller programs the Envoy gateway, and an agent with a SPIFFE X.509 identity issued by Kubernetes Pod Certificates calls the MCP tool server through the gateway over mTLS. The gateway checks identity, tool and time.</desc>
+  <defs>
+    <style>
+      svg { fill: #E6EDF6; }
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 15px; }
+      .mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+      .h1 { font-size: 24px; font-weight: 700; }
+      .h2 { font-size: 18px; font-weight: 700; }
+      .h3 { font-size: 15px; font-weight: 650; }
+      .sm { font-size: 13px; fill: #A9B8CD; }
+      .xs { font-size: 12.5px; fill: #A9B8CD; }
+      .allow { fill: #2DD4BF; }
+      .lease { fill: #F5B544; }
+      .deny { fill: #FF7A7A; }
+      .box { fill: #13233A; stroke: #2E4468; stroke-width: 1.5; }
+      .zone { fill: #0F1E33; stroke: #3A5378; stroke-width: 1.5; }
+      .sel { fill: #0F1E33; stroke: #2DD4BF; stroke-width: 1.8; }
+      .off { fill: #0E1a2c; stroke: #5B6F8C; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .ctl { fill: #13233A; stroke: #2DD4BF; stroke-width: 1.8; }
+      .ls { fill: #13233A; stroke: #F5B544; stroke-width: 1.8; }
+      .gw { fill: #13233A; stroke: #2DD4BF; stroke-width: 1.8; }
+      .wire { fill: none; stroke: #2DD4BF; stroke-width: 2.2; }
+      .wire-muted { fill: none; stroke: #7F93B0; stroke-width: 1.8; }
+      .wire-deny { fill: none; stroke: #FF7A7A; stroke-width: 2; stroke-dasharray: 7 6; }
+      .chip { fill: #1B3050; }
+      .chip-allow { fill: #0F3B3A; }
+      .chip-deny { fill: #4A1D27; }
+    </style>
+    <marker id="arch-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#2DD4BF"/>
+    </marker>
+    <marker id="arch-m" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#7F93B0"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="800" rx="20" fill="#0C1728"/>
+  <text class="h1" x="40" y="52">FleetPermit architecture</text>
+  <text class="sm" x="40" y="78">One controller on the Open Cluster Management hub. Authorization is enforced by the gateway on each managed cluster.</text>
+
+  <!-- Hub cluster -->
+  <rect class="zone" x="40" y="104" width="380" height="636" rx="16"/>
+  <text class="h2" x="62" y="136">Hub cluster</text>
+
+  <rect class="box" x="60" y="154" width="340" height="62" rx="10"/>
+  <text class="h3 mono" x="78" y="180">FleetAccessPolicy</text>
+  <text class="xs" x="78" y="202">The ceiling: who, where, which tools, how long</text>
+
+  <rect class="ls" x="60" y="228" width="340" height="62" rx="10"/>
+  <text class="h3 mono lease" x="78" y="254">ToolAccessLease</text>
+  <text class="xs" x="78" y="276">Activates a subset for a bounded time; immutable</text>
+
+  <rect class="box" x="60" y="310" width="340" height="96" rx="10"/>
+  <text class="h3" x="78" y="336">Open Cluster Management hub</text>
+  <text class="xs mono" x="78" y="360">Placement → PlacementDecision</text>
+  <text class="xs" x="78" y="384">env=production selects cluster-east, cluster-west</text>
+
+  <rect class="ctl" x="60" y="426" width="340" height="156" rx="10"/>
+  <text class="h3 mono allow" x="78" y="454">fleetpermit-controller</text>
+  <text class="sm" x="78" y="480">Checks WHO, WHAT, HOW LONG and WHERE</text>
+  <text class="sm" x="78" y="502">Renders one XAccessPolicy per policy and cluster</text>
+  <text class="sm" x="78" y="524">One CEL rule per lease, with its expiry time</text>
+  <text class="sm" x="78" y="546">SHA-256 content digest on every object</text>
+  <text class="xs" x="78" y="568">Installed with Helm in fleetpermit-system</text>
+
+  <rect class="box" x="60" y="600" width="340" height="120" rx="10"/>
+  <text class="h3 mono" x="78" y="626">ManifestWork per cluster</text>
+  <text class="sm" x="78" y="650">OCM work API delivers the rendered</text>
+  <text class="sm" x="78" y="669">XAccessPolicy to each selected cluster</text>
+  <text class="xs" x="78" y="696">Status feedback reports acceptance,</text>
+  <text class="xs" x="78" y="712">which marks the lease Ready</text>
+
+  <g class="wire-muted" marker-end="url(#arch-m)">
+    <path d="M230 216V226"/>
+    <path d="M230 290V308"/>
+    <path d="M230 406V424"/>
+    <path d="M230 582V598"/>
+  </g>
+
+  <!-- Delivery wires -->
+  <path class="wire" d="M400 630H452V200H512" marker-end="url(#arch-a)"/>
+  <path class="wire" d="M400 660H474V578H512" marker-end="url(#arch-a)"/>
+  <path class="wire-deny" d="M400 690H500"/>
+  <g transform="translate(450 690)">
+    <circle r="11" fill="#0C1728" stroke="#FF7A7A" stroke-width="2"/>
+    <path d="M-4.5-4.5L4.5 4.5M4.5-4.5L-4.5 4.5" stroke="#FF7A7A" stroke-width="2.2" stroke-linecap="round"/>
+  </g>
+
+  <!-- cluster-east (expanded) -->
+  <rect class="sel" x="512" y="104" width="648" height="424" rx="16"/>
+  <text class="h2 mono" x="534" y="136">cluster-east</text>
+  <rect class="chip" x="672" y="119" width="124" height="24" rx="12"/>
+  <text class="xs mono" x="734" y="136" text-anchor="middle">env=production</text>
+  <text class="sm allow" x="1138" y="136" text-anchor="end">Selected by the Placement</text>
+
+  <rect class="box" x="532" y="160" width="168" height="92" rx="10"/>
+  <text class="h3" x="548" y="186">OCM klusterlet</text>
+  <text class="xs" x="548" y="208">registration and</text>
+  <text class="xs" x="548" y="226">work agent; applies</text>
+  <text class="xs" x="548" y="244">the ManifestWork</text>
+
+  <rect class="box" x="716" y="160" width="252" height="92" rx="10"/>
+  <text class="h3" x="732" y="186">XAccessPolicy <tspan class="allow" font-weight="400">(grant)</tspan></text>
+  <text class="xs mono" x="732" y="208">request.mcp.tool_name in</text>
+  <text class="xs mono" x="732" y="226">['restart_workload'] &amp;&amp;</text>
+  <text class="xs mono" x="732" y="244">request.time &lt; timestamp(…)</text>
+
+  <rect class="box" x="716" y="262" width="252" height="54" rx="10"/>
+  <text class="h3" x="732" y="285">XAccessPolicy <tspan class="deny" font-weight="400">(anchor)</tspan></text>
+  <text class="xs mono" x="732" y="305">fleetpermit-default-deny</text>
+
+  <rect class="box" x="984" y="160" width="156" height="92" rx="10"/>
+  <text class="h3" x="998" y="186">Agentic</text>
+  <text class="h3" x="998" y="205">networking</text>
+  <text class="h3" x="998" y="224">controller</text>
+  <text class="xs" x="998" y="244">SIG Network</text>
+
+  <path class="wire-muted" d="M700 206H714" marker-end="url(#arch-m)"/>
+  <path class="wire-muted" d="M968 206H982" marker-end="url(#arch-m)"/>
+  <path class="wire-muted" d="M1060 252V338H846V360" marker-end="url(#arch-m)"/>
+  <text class="xs" x="1072" y="288">programs</text>
+  <text class="xs" x="1072" y="306">Envoy RBAC</text>
+
+  <rect class="box" x="532" y="364" width="190" height="144" rx="10"/>
+  <text class="h3" x="548" y="390">Agent workload</text>
+  <text class="sm mono lease" x="548" y="414">sre-agent</text>
+  <text class="xs mono" x="548" y="440">spiffe://cluster.local/</text>
+  <text class="xs mono" x="548" y="458">ns/agents/sa/sre-agent</text>
+  <text class="xs" x="548" y="482">X.509 identity from</text>
+  <text class="xs" x="548" y="499">Kubernetes Pod Certificates</text>
+
+  <rect class="gw" x="766" y="364" width="160" height="144" rx="10"/>
+  <text class="h3" x="782" y="390">Gateway</text>
+  <text class="xs" x="782" y="410">Envoy</text>
+  <text class="xs" x="782" y="434">checks identity,</text>
+  <text class="xs" x="782" y="451">tool and time</text>
+  <rect class="chip-allow" x="782" y="468" width="60" height="24" rx="12"/>
+  <text class="xs allow" x="812" y="485" text-anchor="middle" font-weight="700">ALLOW</text>
+  <rect class="chip-deny" x="848" y="468" width="60" height="24" rx="12"/>
+  <text class="xs deny" x="878" y="485" text-anchor="middle" font-weight="700">DENY</text>
+
+  <rect class="box" x="970" y="364" width="170" height="144" rx="10"/>
+  <text class="h3" x="986" y="390">MCP tool server</text>
+  <text class="xs mono" x="986" y="412">XBackend fleet-tools</text>
+  <text class="xs mono" x="986" y="438">get_cluster_health</text>
+  <text class="xs mono" x="986" y="456">restart_workload</text>
+  <text class="xs mono" x="986" y="474">scale_workload</text>
+  <text class="xs mono" x="986" y="492">read_secret</text>
+
+  <path class="wire" d="M722 436H762" marker-end="url(#arch-a)"/>
+  <text class="xs" x="744" y="426" text-anchor="middle">mTLS</text>
+  <path class="wire" d="M926 436H966" marker-end="url(#arch-a)"/>
+
+  <!-- cluster-west -->
+  <rect class="sel" x="512" y="548" width="648" height="84" rx="16"/>
+  <text class="h2 mono" x="534" y="580">cluster-west</text>
+  <rect class="chip" x="672" y="563" width="124" height="24" rx="12"/>
+  <text class="xs mono" x="734" y="580" text-anchor="middle">env=production</text>
+  <text class="sm allow" x="1138" y="580" text-anchor="end">Grant delivered</text>
+  <text class="xs" x="534" y="614">Same components as cluster-east; receives its own ManifestWork and grant</text>
+
+  <!-- cluster-edge -->
+  <rect class="off" x="512" y="648" width="648" height="92" rx="16"/>
+  <text class="h2 mono" x="534" y="680" fill="#C3CFDF">cluster-edge</text>
+  <rect class="chip" x="672" y="663" width="110" height="24" rx="12"/>
+  <text class="xs mono" x="727" y="680" text-anchor="middle">env=staging</text>
+  <text class="sm deny" x="1138" y="680" text-anchor="end">Not selected: every call DENY</text>
+  <text class="xs" x="534" y="712">No ManifestWork and no grant. Only the default-deny anchor is present,</text>
+  <text class="xs" x="534" y="730">so the gateway denies every tool call.</text>
+
+  <!-- Legend -->
+  <g transform="translate(40 768)">
+    <path class="wire" d="M0 0H34" marker-end="url(#arch-a)"/>
+    <text class="xs" x="44" y="4">delivers or forwards</text>
+    <path class="wire-deny" d="M210 0H244"/>
+    <text class="xs" x="254" y="4">no delivery</text>
+    <path class="wire-muted" d="M370 0H404" marker-end="url(#arch-m)"/>
+    <text class="xs" x="414" y="4">in-cluster control flow</text>
+    <rect x="600" y="-8" width="16" height="16" rx="4" fill="none" stroke="#F5B544" stroke-width="1.8"/>
+    <text class="xs" x="626" y="4">time-bound lease</text>
+  </g>
+</svg>

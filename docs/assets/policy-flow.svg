@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 590" width="1200" height="590" role="img" aria-labelledby="flow-t flow-d">
+  <title id="flow-t">How a ToolAccessLease becomes enforcement</title>
+  <desc id="flow-d">A ToolAccessLease named incident-42 asks for restart_workload for 10 minutes. The fleetpermit-controller checks four questions against the FleetAccessPolicy. WHO: the subject must be listed in the policy. WHERE: clusters come from the Open Cluster Management PlacementDecision and a lease may only narrow them. WHAT: the requested tools must be a subset of the policy permissions. HOW LONG: the duration must not exceed maxDuration. If WHO, WHAT or HOW LONG fails the lease is Denied and nothing is rendered. When all pass, the controller renders one XAccessPolicy per policy and cluster with a CEL rule bounded by the expiry time, delivers it with one ManifestWork per selected cluster, and the Envoy gateway enforces identity, tool and time on every call.</desc>
+  <defs>
+    <style>
+      svg { fill: #E6EDF6; }
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 15px; }
+      .mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+      .h1 { font-size: 24px; font-weight: 700; }
+      .q { font-size: 22px; font-weight: 750; letter-spacing: -0.2px; }
+      .h3 { font-size: 16px; font-weight: 650; }
+      .sm { font-size: 13.5px; fill: #A9B8CD; }
+      .xs { font-size: 12.5px; fill: #A9B8CD; }
+      .allow { fill: #2DD4BF; }
+      .lease { fill: #F5B544; }
+      .deny { fill: #FF7A7A; }
+      .box { fill: #13233A; stroke: #2E4468; stroke-width: 1.5; }
+      .gate { fill: #13233A; stroke: #2DD4BF; stroke-width: 1.6; }
+      .ls { fill: #13233A; stroke: #F5B544; stroke-width: 1.8; }
+      .wire { fill: none; stroke: #2DD4BF; stroke-width: 2.2; }
+      .wire-deny { fill: none; stroke: #FF7A7A; stroke-width: 1.8; stroke-dasharray: 6 5; }
+      .num { fill: #0F3B3A; stroke: #2DD4BF; stroke-width: 1.5; }
+    </style>
+    <marker id="flow-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#2DD4BF"/>
+    </marker>
+    <marker id="flow-d" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#FF7A7A"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="590" rx="20" fill="#0C1728"/>
+  <text class="h1" x="40" y="52">From request to enforcement</text>
+  <text class="sm" x="40" y="78">The fleetpermit-controller answers four questions against the FleetAccessPolicy before anything reaches a cluster.</text>
+
+  <!-- Lease request -->
+  <rect class="ls" x="40" y="108" width="206" height="176" rx="12"/>
+  <text class="h3 mono lease" x="58" y="136">ToolAccessLease</text>
+  <text class="h3 mono" x="58" y="160">incident-42</text>
+  <text class="xs mono" x="58" y="190">subject: sre-agent</text>
+  <text class="xs mono" x="58" y="210">tools: restart_workload</text>
+  <text class="xs mono" x="58" y="230">duration: 10m</text>
+  <text class="xs mono" x="58" y="250">reason: incident 42</text>
+  <text class="xs" x="58" y="272">spec is immutable</text>
+
+  <path class="wire" d="M246 196H272" marker-end="url(#flow-a)"/>
+
+  <!-- Four checks -->
+  <g>
+    <rect class="gate" x="276" y="108" width="210" height="176" rx="12"/>
+    <text class="q allow" x="296" y="142">WHO?</text>
+    <text class="sm" x="296" y="168">The subject is listed in</text>
+    <text class="sm" x="296" y="187">the policy's subjects</text>
+    <text class="xs mono" x="296" y="214">spiffe://cluster.local/</text>
+    <text class="xs mono" x="296" y="232">ns/agents/sa/sre-agent</text>
+    <text class="xs" x="296" y="256">else the lease is Denied:</text>
+    <text class="xs deny" x="296" y="273">SubjectNotAllowed</text>
+  </g>
+  <path class="wire" d="M486 196H500" marker-end="url(#flow-a)"/>
+  <g>
+    <rect class="gate" x="504" y="108" width="210" height="176" rx="12"/>
+    <text class="q allow" x="524" y="142">WHERE?</text>
+    <text class="sm" x="524" y="168">OCM PlacementDecision;</text>
+    <text class="sm" x="524" y="187">a lease may only narrow</text>
+    <text class="xs mono" x="524" y="214">cluster-east</text>
+    <text class="xs mono" x="524" y="232">cluster-west</text>
+    <text class="xs" x="524" y="256">other clusters never</text>
+    <text class="xs" x="524" y="273">receive a grant</text>
+  </g>
+  <path class="wire" d="M714 196H728" marker-end="url(#flow-a)"/>
+  <g>
+    <rect class="gate" x="732" y="108" width="210" height="176" rx="12"/>
+    <text class="q allow" x="752" y="142">WHAT?</text>
+    <text class="sm" x="752" y="168">Requested tools are a</text>
+    <text class="sm" x="752" y="187">subset of the permissions</text>
+    <text class="xs mono" x="752" y="214">restart_workload</text>
+    <text class="xs mono" x="752" y="232">⊆ permissions</text>
+    <text class="xs" x="752" y="256">else the lease is Denied:</text>
+    <text class="xs deny" x="752" y="273">PermissionNotAllowed</text>
+  </g>
+  <path class="wire" d="M942 196H956" marker-end="url(#flow-a)"/>
+  <g>
+    <rect class="gate" x="960" y="108" width="200" height="176" rx="12" stroke="#F5B544"/>
+    <text class="q lease" x="980" y="142">HOW LONG?</text>
+    <text class="sm" x="980" y="168">Duration is at most</text>
+    <text class="sm" x="980" y="187">the policy maxDuration</text>
+    <text class="xs mono" x="980" y="214">10m ≤ 1h</text>
+    <text class="xs mono" x="980" y="232">expires 10:15:00Z</text>
+    <text class="xs" x="980" y="256">else the lease is Denied:</text>
+    <text class="xs deny" x="980" y="273">DurationExceedsMaximum</text>
+  </g>
+
+  <!-- All pass: continue to rendering -->
+  <path class="wire" d="M1060 284V326H280V366" marker-end="url(#flow-a)"/>
+  <rect x="600" y="314" width="152" height="24" rx="12" fill="#0F3B3A"/>
+  <text class="xs allow" x="676" y="331" text-anchor="middle" font-weight="700">all four pass</text>
+
+  <!-- Render, deliver, enforce -->
+  <g>
+    <rect class="box" x="40" y="370" width="480" height="150" rx="12"/>
+    <circle class="num" cx="68" cy="398" r="14"/>
+    <text class="xs allow" x="68" y="403" text-anchor="middle" font-weight="700">1</text>
+    <text class="h3" x="92" y="404">Render</text>
+    <text class="sm" x="60" y="432">One XAccessPolicy per policy and cluster; one CEL rule per lease</text>
+    <text class="xs mono allow" x="60" y="460">request.mcp.tool_name in ['restart_workload']</text>
+    <text class="xs mono allow" x="60" y="478">&amp;&amp; request.time &lt; timestamp('2026-09-26T10:15:00Z')</text>
+    <text class="xs" x="60" y="506">plus an MCP session rule; SHA-256 content digest annotation</text>
+  </g>
+  <path class="wire" d="M520 445H556" marker-end="url(#flow-a)"/>
+  <g>
+    <rect class="box" x="560" y="370" width="290" height="150" rx="12"/>
+    <circle class="num" cx="588" cy="398" r="14"/>
+    <text class="xs allow" x="588" y="403" text-anchor="middle" font-weight="700">2</text>
+    <text class="h3" x="612" y="404">Deliver</text>
+    <text class="sm" x="580" y="432">One ManifestWork per selected</text>
+    <text class="sm" x="580" y="451">cluster; the OCM work agent</text>
+    <text class="sm" x="580" y="470">applies it</text>
+    <text class="xs" x="580" y="506">Status feedback marks the lease Ready</text>
+  </g>
+  <path class="wire" d="M850 445H886" marker-end="url(#flow-a)"/>
+  <g>
+    <rect class="box" x="890" y="370" width="270" height="150" rx="12" stroke="#2DD4BF"/>
+    <circle class="num" cx="918" cy="398" r="14"/>
+    <text class="xs allow" x="918" y="403" text-anchor="middle" font-weight="700">3</text>
+    <text class="h3" x="942" y="404">Enforce</text>
+    <text class="sm" x="910" y="432">The Envoy gateway checks</text>
+    <text class="sm" x="910" y="451">SPIFFE identity, tool name and</text>
+    <text class="sm" x="910" y="470">time on every tools/call</text>
+    <text class="xs" x="910" y="506"><tspan class="allow" font-weight="700">ALLOW</tspan> or <tspan class="deny" font-weight="700">DENY</tspan> in the data plane</text>
+  </g>
+  <text class="xs" x="40" y="556"><tspan class="deny" font-weight="700">Denied</tspan> is terminal: a failed WHO, WHAT or HOW LONG check stops the lease and nothing is rendered. A cluster outside WHERE simply never receives a grant.</text>
+</svg>

@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="dis-t dis-d">
+  <title id="dis-t">Expiry with the hub unreachable</title>
+  <desc id="dis-d">Three stages. One: the hub is connected, lease incident-42 is Active, the grant XAccessPolicy is on cluster-east and restart_workload is allowed. Two: the hub becomes unreachable before the lease expires; the grant is still present on cluster-east, but once request.time reaches the expiry timestamp its CEL rule no longer matches, so the Envoy gateway denies the call without any help from the hub. Three: the hub reconnects, marks the lease Expired and withdraws the ManifestWork; the grant is removed, the default-deny anchor remains and calls stay denied. Expiry uses each managed cluster's clock, so clock skew shifts the moment of denial.</desc>
+  <defs>
+    <style>
+      svg { fill: #E6EDF6; }
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 15px; }
+      .mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+      .h1 { font-size: 24px; font-weight: 700; }
+      .h2 { font-size: 17px; font-weight: 700; }
+      .h3 { font-size: 15px; font-weight: 650; }
+      .sm { font-size: 13.5px; fill: #A9B8CD; }
+      .xs { font-size: 12.5px; fill: #A9B8CD; }
+      .allow { fill: #2DD4BF; }
+      .lease { fill: #F5B544; }
+      .deny { fill: #FF7A7A; }
+      .panel { fill: #0F1E33; stroke: #2E4468; stroke-width: 1.5; }
+      .box { fill: #13233A; stroke: #2E4468; stroke-width: 1.5; }
+      .num { fill: #1B3050; }
+    </style>
+    <marker id="dis-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#7F93B0"/>
+    </marker>
+    <marker id="dis-t2" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#2DD4BF"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="560" rx="20" fill="#0C1728"/>
+  <text class="h1" x="40" y="52">The time bound lives in the data plane</text>
+  <text class="sm" x="40" y="78">A lease stops working at its expiry time even when the hub cannot be reached.</text>
+
+  <!-- Panel 1 -->
+  <g transform="translate(40 104)">
+    <rect class="panel" width="360" height="390" rx="16"/>
+    <circle class="num" cx="34" cy="34" r="15"/>
+    <text class="h3" x="34" y="39" text-anchor="middle">1</text>
+    <text class="h2" x="60" y="40">Hub connected</text>
+
+    <rect class="box" x="20" y="64" width="320" height="72" rx="10"/>
+    <text class="h3" x="36" y="92">Hub cluster</text>
+    <text class="sm allow" x="36" y="118">Lease incident-42 is Active</text>
+
+    <path d="M180 136V206" stroke="#2DD4BF" stroke-width="2.2" fill="none" marker-end="url(#dis-t2)"/>
+    <text class="xs" x="192" y="176">ManifestWork</text>
+
+    <rect class="box" x="20" y="210" width="320" height="158" rx="10" stroke="#2DD4BF"/>
+    <text class="h3 mono" x="36" y="238">cluster-east</text>
+    <text class="sm" x="36" y="264">Grant XAccessPolicy present</text>
+    <text class="xs mono allow" x="36" y="290">request.time &lt; 10:15:00Z</text>
+    <rect x="36" y="314" width="288" height="36" rx="18" fill="#0F3B3A"/>
+    <text class="sm mono" x="54" y="337" fill="#E6EDF6">restart_workload</text>
+    <text class="sm allow" x="308" y="337" text-anchor="end" font-weight="700">ALLOW</text>
+  </g>
+
+  <path d="M404 300H416" stroke="#7F93B0" stroke-width="2" marker-end="url(#dis-a)"/>
+
+  <!-- Panel 2 -->
+  <g transform="translate(420 104)">
+    <rect class="panel" width="360" height="390" rx="16"/>
+    <circle class="num" cx="34" cy="34" r="15"/>
+    <text class="h3" x="34" y="39" text-anchor="middle">2</text>
+    <text class="h2" x="60" y="40">Hub unreachable at expiry</text>
+
+    <rect class="box" x="20" y="64" width="320" height="72" rx="10" stroke="#FF7A7A" stroke-dasharray="6 5"/>
+    <text class="h3" x="36" y="92" fill="#A9B8CD">Hub cluster</text>
+    <text class="sm deny" x="36" y="118">Unreachable: nothing can be sent</text>
+
+    <path d="M180 136V206" stroke="#FF7A7A" stroke-width="2" stroke-dasharray="6 5" fill="none"/>
+    <g transform="translate(180 171)">
+      <circle r="12" fill="#0F1E33" stroke="#FF7A7A" stroke-width="2"/>
+      <path d="M-5-5L5 5M5-5L-5 5" stroke="#FF7A7A" stroke-width="2.2" stroke-linecap="round"/>
+    </g>
+
+    <rect class="box" x="20" y="210" width="320" height="158" rx="10" stroke="#FF7A7A"/>
+    <text class="h3 mono" x="36" y="238">cluster-east</text>
+    <text class="sm" x="36" y="264">Grant still present, rule now false</text>
+    <text class="xs mono lease" x="36" y="290">request.time ≥ 10:15:00Z</text>
+    <rect x="36" y="314" width="288" height="36" rx="18" fill="#4A1D27"/>
+    <text class="sm mono" x="54" y="337" fill="#E6EDF6">restart_workload</text>
+    <text class="sm deny" x="308" y="337" text-anchor="end" font-weight="700">DENY</text>
+  </g>
+
+  <path d="M784 300H796" stroke="#7F93B0" stroke-width="2" marker-end="url(#dis-a)"/>
+
+  <!-- Panel 3 -->
+  <g transform="translate(800 104)">
+    <rect class="panel" width="360" height="390" rx="16"/>
+    <circle class="num" cx="34" cy="34" r="15"/>
+    <text class="h3" x="34" y="39" text-anchor="middle">3</text>
+    <text class="h2" x="60" y="40">Hub reconnects</text>
+
+    <rect class="box" x="20" y="64" width="320" height="72" rx="10"/>
+    <text class="h3" x="36" y="92">Hub cluster</text>
+    <text class="sm lease" x="36" y="118">Lease marked Expired</text>
+
+    <path d="M180 136V206" stroke="#7F93B0" stroke-width="2" fill="none" marker-end="url(#dis-a)"/>
+    <text class="xs" x="192" y="168">ManifestWork</text>
+    <text class="xs" x="192" y="185">withdrawn</text>
+
+    <rect class="box" x="20" y="210" width="320" height="158" rx="10"/>
+    <text class="h3 mono" x="36" y="238">cluster-east</text>
+    <text class="sm" x="36" y="264">Grant removed; the default-deny</text>
+    <text class="sm" x="36" y="283">anchor remains</text>
+    <rect x="36" y="314" width="288" height="36" rx="18" fill="#4A1D27"/>
+    <text class="sm mono" x="54" y="337" fill="#E6EDF6">restart_workload</text>
+    <text class="sm deny" x="308" y="337" text-anchor="end" font-weight="700">DENY</text>
+  </g>
+
+  <text class="xs" x="40" y="530">Expiry is evaluated with each managed cluster's clock, so clock skew between clusters shifts the moment of denial.</text>
+</svg>
