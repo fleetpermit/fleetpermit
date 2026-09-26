@@ -55,6 +55,10 @@ images: ## Build the controller and demo images with podman (or docker).
 	$(CONTAINER_ENGINE) build -q --build-arg VERSION=$(VERSION) -t $(FP_CONTROLLER_IMAGE) .
 	$(CONTAINER_ENGINE) build -q --build-arg VERSION=$(VERSION) --build-arg CMD=demo/tools/mcp-server --build-arg BIN=demo-mcp-tools -t $(FP_TOOLS_IMAGE) .
 	$(CONTAINER_ENGINE) build -q --build-arg VERSION=$(VERSION) --build-arg CMD=demo/tools/probe --build-arg BIN=demo-probe -t $(FP_PROBE_IMAGE) .
+	@# Podman keeps each build stage as an untagged image (over 1 GB each); remove
+	@# only this Dockerfile's leftover builder images so repeated builds do not
+	@# fill the engine's disk. Other images are never touched.
+	-@$(CONTAINER_ENGINE) image prune -f --filter label=io.github.fleetpermit.stage=builder >/dev/null
 
 ##@ Verification
 
