@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/). APIs are `v1alpha1` and may change before v1.
 
+## [Unreleased]
+
+### Fixed
+
+- ManifestWork changes are now merge patches without an optimistic lock, so they no longer conflict
+  with the OCM work agent's continuous status writes. That conflict occasionally delayed activation by
+  5 to 8 seconds. Delivery failures are retried after 1 second.
+
+### Added
+
+- Decision-matrix end-to-end scenario: 2 test agents × 3 clusters × 4 tools, with the lease active and
+  then expired (48 real calls, expected and observed).
+- README recordings of real demo runs, the "five answers" overview, and an independent reproduction
+  on a GitHub-hosted Linux runner.
+
 ## [v0.1.0] - 2026-09-26
 
 First pre-release.

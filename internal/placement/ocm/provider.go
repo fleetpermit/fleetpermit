@@ -164,17 +164,23 @@ func (o *Provider) Apply(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster
 		// the delivered object is missing or differs, ask the work agent to
 		// re-apply now instead of waiting for its periodic resync.
 		if Drift(&current) != "" && o.resyncDue(&current) {
+			base := current.DeepCopy()
 			current.Labels[LabelResync] = strconv.FormatInt(o.now().Unix(), 10)
-			if err := o.Client.Update(ctx, &current); err != nil {
+			if err := o.Client.Patch(ctx, &current, client.MergeFrom(base)); err != nil {
 				return fmt.Errorf("requesting re-apply of ManifestWork %s/%s: %w", cluster, desired.Name, err)
 			}
 		}
 		return nil
 	}
+	// A merge patch without an optimistic lock: FleetPermit owns the spec,
+	// labels and annotations, while the OCM work agent continuously writes
+	// status. A read-modify-write Update from the informer cache would
+	// conflict with those status writes and delay delivery.
+	base := current.DeepCopy()
 	current.Labels = desired.Labels
 	current.Annotations = desired.Annotations
 	current.Spec = desired.Spec
-	if err := o.Client.Update(ctx, &current); err != nil {
+	if err := o.Client.Patch(ctx, &current, client.MergeFrom(base)); err != nil {
 		return fmt.Errorf("updating ManifestWork %s/%s: %w", cluster, desired.Name, err)
 	}
 	return nil

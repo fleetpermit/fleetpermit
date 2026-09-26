@@ -141,6 +141,18 @@ subset of `XAccessPolicy` fields it renders
 and validates every rendered shape against the pinned upstream CRD in the integration tests. The OCM
 API module is small and is imported directly.
 
+## ADR-9: Patch ManifestWorks; never read-modify-write against the OCM work agent
+
+**Finding.** In the lab, the first lease after a controller restart sometimes took 5 to 8 seconds to
+reach one cluster, while the other cluster took about 140 ms. The OCM work agent writes ManifestWork
+status continuously. A read-modify-write `Update` from FleetPermit's informer cache then failed with a
+`resourceVersion` conflict, and delivery waited for the next progress requeue.
+
+**Decision.** FleetPermit changes ManifestWork spec, labels and annotations with a JSON merge patch and
+no optimistic lock: it owns those fields, and the work agent owns status. Any delivery failure is
+retried after 1 second. The regression test `TestDeliveryIsNotBlockedByConcurrentStatusWrites`
+rewrites status every 10 ms while a lease is created, and requires delivery within 3 seconds.
+
 ## Not in v0.1 (deliberately)
 
 - **Argument-level constraints** such as `replicas <= 10`. kube-agentic-networking v0.2.0 matches

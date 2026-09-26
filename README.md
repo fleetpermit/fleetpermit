@@ -26,6 +26,28 @@ and enforced by each cluster's gateway. It expires on time even when the fleet h
 An agent here is just a workload with a [SPIFFE](https://spiffe.io/) identity making a standards-based
 tool call. FleetPermit does not depend on any model, agent framework, cloud or vendor.
 
+## FleetPermit in five answers
+
+1. **What is FleetPermit?** *Least privilege for agents, across every cluster.* One policy defines which
+   workload identities may call which MCP tools, on which clusters, and for at most how long.
+   Short-lived leases activate part of it. ([architecture](docs/architecture.md))
+2. **What is genuinely new?** Fleet-wide *and* time-bound authorization for agent-to-tool calls. It is
+   not another MCP server. Open Cluster Management places one policy across a changing fleet, Kubernetes
+   Agentic Networking enforces it on every call, and each lease's expiry is written into the gateway's
+   own rule, so it holds even when the hub is unreachable. ([design decisions](docs/design.md))
+3. **What actually works today?** A real OCM `Placement` → FleetPermit policy and lease →
+   Kubernetes Agentic Networking `XAccessPolicy` on Envoy → MCP ALLOW/DENY, on a 1 hub + 3 cluster lab
+   that anyone can start with `make demo-up`. ([see it run](#see-it-run))
+4. **What evidence exists?** Real multi-cluster end-to-end scenarios: lease activation and expiry,
+   denial of the wrong identity or the wrong tool, placement changes, drift repair, hub disconnect and
+   reconnect. They also include a 48-call agent × cluster × tool decision matrix, measured propagation
+   and revocation latency, the upstream conformance suite, and an independent reproduction on a
+   GitHub-hosted Linux runner. ([measured results](#measured-results))
+5. **Why is it reusable open source?** There is no vendor, cloud, distribution or model lock-in. It is
+   built only on Kubernetes, CNCF and Linux Foundation projects and licensed Apache-2.0. Placement and
+   enforcement sit behind provider seams, and every upstream version is pinned and canary-tested against
+   new releases. ([dependencies](DEPENDENCIES.md))
+
 ## See it run
 
 <p align="center">
@@ -168,16 +190,40 @@ Recordings of real runs: [demo/recordings](demo/recordings) (asciinema) and MP4s
 <!-- results:start -->
 Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM v1.3.1, kube-agentic-networking v0.2.0, Darwin/arm64, 2026-09-26):
 
-- **19 of 20 scenarios passed**, 0 failed, 1 not supported by the upstream API (argument-level matching).
+- **20 of 21 scenarios passed**, 0 failed, 1 not supported by the upstream API (argument-level matching).
+- **Reproduced independently** on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 19 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36238381559)).
+- **Decision matrix: 48 of 48 real MCP calls matched the expected outcome.**
+
+#### Test agents and expected outcomes
+
+Two workload identities make every call. Their SPIFFE X.509 certificates come from Kubernetes Pod Certificates:
+
+- **`sre-agent`** (`spiffe://cluster.local/ns/agents/sa/sre-agent`): listed as a subject of policy sre-remediation; receives leases
+- **`security-agent`** (`spiffe://cluster.local/ns/agents/sa/security-agent`): not listed in any policy; every call must be denied
+
+The lease grants `get_cluster_health` and `restart_workload` to `sre-agent`, on the clusters the placement selects (env=production: east and west). Each cell below is a real call through that cluster's gateway, showing the observed decision (✅/⛔ = matched the expectation, ❌ = did not):
+
+**Lease active**
+
+| Agent | Cluster | get_cluster_health | restart_workload | scale_workload | read_secret |
+|---|---|---|---|---|---|
+| `sre-agent` | cluster-east | ✅ ALLOW | ✅ ALLOW | ⛔ DENY | ⛔ DENY |
+| `sre-agent` | cluster-west | ✅ ALLOW | ✅ ALLOW | ⛔ DENY | ⛔ DENY |
+| `sre-agent` | cluster-edge | ⛔ DENY | ⛔ DENY | ⛔ DENY | ⛔ DENY |
+| `security-agent` | cluster-east | ⛔ DENY | ⛔ DENY | ⛔ DENY | ⛔ DENY |
+| `security-agent` | cluster-west | ⛔ DENY | ⛔ DENY | ⛔ DENY | ⛔ DENY |
+| `security-agent` | cluster-edge | ⛔ DENY | ⛔ DENY | ⛔ DENY | ⛔ DENY |
+
+After the lease expires, the same 24 calls are repeated. Expected: all DENY. Observed: all 24 DENY, as expected ([full table](docs/results.md#decision-matrix)).
 
 | Measured on real clusters | n | p50 | p95 |
 |---|---|---|---|
-| Lease created → first ALLOW at the gateway | 18 | 180 ms | 5307 ms |
+| Lease created → first ALLOW at the gateway | 18 | 180 ms | 8112 ms |
 | Lease deleted → first DENY at the gateway | 18 | 185 ms | 418 ms |
-| Lease expiry → first DENY (hub connected) | 4 | 156 ms | 296 ms |
-| Lease expiry → first DENY (hub disconnected) | 2 | 255 ms | 428 ms |
-| Rendered policy deleted on a cluster → restored | 5 | 9901 ms | 13175 ms |
-| Lease created → lease reports Ready (includes OCM status sync) | 9 | 574 ms | 5711 ms |
+| Lease expiry → first DENY (hub connected) | 4 | 252 ms | 331 ms |
+| Lease expiry → first DENY (hub disconnected) | 2 | 103 ms | 278 ms |
+| Rendered policy deleted on a cluster → restored | 5 | 9901 ms | 10441 ms |
+| Lease created → lease reports Ready (includes OCM status sync) | 9 | 574 ms | 8534 ms |
 | Probe round trip (measurement baseline) | 10 | 121 ms | 167 ms |
 
 Simulated controller scale (envtest, no real clusters): a lease reached 100 logical clusters' ManifestWorks in 143 ms and was withdrawn in 199 ms.

@@ -59,6 +59,8 @@ const (
 	maxRequeue = 2 * time.Minute
 	// progressRequeue is used while a rollout or revocation is in flight.
 	progressRequeue = 5 * time.Second
+	// failureRequeue is used when delivery to a cluster failed.
+	failureRequeue = time.Second
 )
 
 var tracer = otel.Tracer("github.com/fleetpermit/fleetpermit/internal/controller")
@@ -260,6 +262,11 @@ func (r *PolicyReconciler) reconcilePolicy(ctx context.Context, p *fpv1.FleetAcc
 	}
 	if progressing && (requeue == 0 || requeue > progressRequeue) {
 		requeue = progressRequeue
+	}
+	if len(s.applyFailures) > 0 {
+		// Delivery failed for at least one cluster; retry soon rather than
+		// at the next progress check.
+		requeue = failureRequeue
 	}
 	if requeue == 0 || requeue > maxRequeue {
 		requeue = maxRequeue

@@ -713,3 +713,57 @@ func TestMissingDeliveredObjectTriggersReapply(t *testing.T) {
 		return fmt.Errorf("conditions %+v", got.Status.Conditions)
 	})
 }
+
+// TestDeliveryIsNotBlockedByConcurrentStatusWrites is a regression test for
+// a lab finding: the OCM work agent writes ManifestWork status continuously,
+// and a read-modify-write Update from the informer cache conflicted with
+// those writes, delaying delivery until the next progress requeue (5s).
+// FleetPermit now patches without an optimistic lock.
+func TestDeliveryIsNotBlockedByConcurrentStatusWrites(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "status-churn", []string{"sc-east"}, []string{"sc-east"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "inert policy delivered", func() error {
+		if len(works(t, p)) != 1 {
+			return fmt.Errorf("no work yet")
+		}
+		return nil
+	})
+
+	// Simulate the work agent: rewrite status every 10ms.
+	churnCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		for i := 0; churnCtx.Err() == nil; i++ {
+			for _, w := range works(t, p) {
+				meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+					Type: "StatusFeedbackSynced", Status: metav1.ConditionTrue, Reason: "Test", Message: fmt.Sprint(i),
+				})
+				_ = k8s.Status().Update(churnCtx, &w)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	start := time.Now()
+	l := f.lease("under-churn", p.Name, 5*time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "grant delivered despite status churn", func() error {
+		if len(grantWorks(t, p)) != 1 {
+			return fmt.Errorf("grant not delivered yet")
+		}
+		return nil
+	})
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("delivery took %s under concurrent status writes; conflicts are delaying it", took)
+	}
+}
