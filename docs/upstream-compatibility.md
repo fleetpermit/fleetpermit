@@ -35,6 +35,14 @@ used, from where, and how stable it is. It was verified against the upstream sou
 | Status feedback JSONPaths are polled every `statusSyncInterval` | OCM `pkg/work/spoke/statusfeedback` | Affects status latency only. |
 | The work agent re-applies on ManifestWork spec or label changes, otherwise every 4 min ± 50% | OCM `pkg/work/spoke/controllers/manifestcontroller` | Drift repair falls back to the periodic resync. |
 
+## Why some pins are not the newest release
+
+Gateway API (v1.5.1) and Envoy (v1.36.x) are pinned to the versions that kube-agentic-networking
+v0.2.0 itself is tested with (its CI and quickstart), not to the newest releases of those projects.
+FleetPermit's data plane is whatever the agentic-networking reference implementation programs, so
+its tested combination is the one that matters. The upstream canary reports newer releases so they
+can be adopted deliberately, together with a new agentic-networking release.
+
 ## Keeping up with upstream
 
 - Versions are pinned in exactly two places: [`demo/scripts/lib.sh`](../demo/scripts/lib.sh) for the

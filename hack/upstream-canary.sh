@@ -10,10 +10,13 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../demo/scripts/lib.sh"
 need curl jq go
 
+# latest <owner/repo> — newest non-prerelease tag that looks like a version
+# (vX.Y.Z), skipping other release streams such as Helm chart tags.
 latest() {
   local auth=()
   [[ -n "${GITHUB_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-  curl -fsSL "${auth[@]}" "https://api.github.com/repos/$1/releases/latest" | jq -r .tag_name
+  curl -fsSL ${auth[@]+"${auth[@]}"} "https://api.github.com/repos/$1/releases?per_page=30" \
+    | jq -r '[.[] | select(.prerelease | not) | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))][0]'
 }
 
 say "Pinned versus latest upstream releases"
