@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="life-t life-d">
   <title id="life-t">ToolAccessLease lifecycle</title>
-  <desc id="life-d">A new ToolAccessLease is checked against its policy. If the subject, tools or duration violate the policy, or the policy is deleted after the lease was evaluated, it becomes Denied, which is terminal. Otherwise it is Pending while its policy does not exist yet, or until a requested cluster is placed and has room under the upstream rule limit, and it becomes Active once a grant is rendered on at least one selected cluster; the grant is a CEL rule with request.time before the expiry timestamp. At expiresAt the Envoy gateway stops honouring the grant and the lease becomes Expired, which is also terminal, and the controller withdraws the grant. An Active lease becomes Denied if its policy is narrowed so that the lease no longer fits, or if the policy is deleted, and it returns to Pending if none of its requested clusters is placed any more. A Pending lease becomes Expired when its expiry passes. Deleting an Active lease revokes it on every cluster. expiresAt is creationTimestamp plus the effective duration: spec.duration, or for a lease without it the policy default in effect at first evaluation, which is then pinned in status. Policy changes never extend it.</desc>
+  <desc id="life-d">A new ToolAccessLease is checked against its policy. If the subject, tools or duration violate the policy, or the policy is deleted after the lease was evaluated, it becomes Denied, which is terminal. A lease created before its policy is Pending for at most 5 minutes after its creation; if the policy has not appeared by then it becomes Denied, and if its requested duration ends first it becomes Expired. Otherwise it is Pending until a requested cluster is placed and has room under the upstream rule limit, and it becomes Active once a grant is rendered on at least one selected cluster; the grant is a CEL rule with request.time before the expiry timestamp. At expiresAt the Envoy gateway stops honouring the grant and the lease becomes Expired, which is also terminal, and the controller withdraws the grant. An Active lease becomes Denied if its policy is narrowed so that the lease no longer fits, or if the policy is deleted, and it returns to Pending if none of its requested clusters is placed any more. A Pending lease becomes Expired when its expiry passes. Deleting an Active lease revokes it on every cluster. expiresAt is creationTimestamp plus the effective duration: spec.duration, or for a lease without it the policy default in effect at first evaluation, which is then pinned in status. Policy changes never extend it.</desc>
   <defs>
     <style>
       svg { fill: #E6EDF6; }
@@ -34,9 +34,9 @@
   <!-- Pending -->
   <rect class="box" x="100" y="116" width="250" height="120" rx="14" stroke="#7F93B0"/>
   <text class="st muted" x="122" y="150">Pending</text>
-  <text class="sm" x="122" y="178">Checked against the policy;</text>
-  <text class="sm" x="122" y="197">waits for a missing policy or</text>
-  <text class="sm" x="122" y="216">a placed cluster with room</text>
+  <text class="sm" x="122" y="178">Waits up to 5 min for a missing</text>
+  <text class="sm" x="122" y="197">policy, or for a placed cluster</text>
+  <text class="sm" x="122" y="216">with room under the rule limit</text>
 
   <!-- Pending → Active -->
   <path class="wire" d="M350 190H464" marker-end="url(#life-a)"/>
@@ -76,7 +76,7 @@
   <path class="wire" d="M225 236V318" marker-end="url(#life-a)"/>
   <text class="xs" x="238" y="264">WHO, WHAT or</text>
   <text class="xs" x="238" y="282">HOW LONG fails,</text>
-  <text class="xs" x="238" y="300">or policy deleted</text>
+  <text class="xs" x="238" y="300">or no policy</text>
 
   <!-- Active → Denied -->
   <path class="wire" d="M482 252L354 340" marker-end="url(#life-a)"/>

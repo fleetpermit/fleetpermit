@@ -181,9 +181,10 @@ incident-42   sre-remediation   2          2026-09-26T10:15:00Z   Active   1m
 ```
 
 A lease is `Denied`, with the reason in its conditions, if it asks for a tool the policy does not
-list, for longer than `maxDuration`, or for a subject the policy does not name. A lease created before
-its policy waits in `Pending` and activates when the policy appears, so the apply order does not
-matter. A lease whose policy is deleted after it was evaluated is denied, or `Expired` if its expiry
+list, for longer than `maxDuration`, or for a subject the policy does not name. A lease created before its
+policy waits in `Pending` for up to 5 minutes, so the apply order does not matter within that time;
+if the policy does not appear by then, the lease is denied, and it expires instead if its own
+duration ends first. A lease whose policy is deleted after it was evaluated is denied, or `Expired` if its expiry
 had already passed. Provided only the controller
 can write `toolaccessleases/status`, denied and expired leases never become active again.
 A lease's spec cannot be edited after creation.

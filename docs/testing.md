@@ -81,6 +81,17 @@ The v0.2.0 suite deploys `quickstart-everything-mcp:main` from the upstream stag
 does not publish that image (the repository has no tags). The script builds it from the upstream
 Dockerfile at the same tag and loads it into the cluster, so the test code itself is untouched.
 
+## Running the integration suite repeatedly
+
+The integration suite can run several times against one API server, which helps find flaky tests.
+Use the same environment as `make test-integration` (run it once first, so that `bin/setup-envtest`
+exists), with a higher `-count`:
+
+```sh
+KUBEBUILDER_ASSETS="$(bin/setup-envtest use 1.35.0 --bin-dir bin/envtest -p path)" \
+  go test -tags integration -count=5 ./test/integration/...
+```
+
 ## Coverage
 
 Coverage is measured, never hand-written. `make test-unit` and `make test-integration` both record

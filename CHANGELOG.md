@@ -42,15 +42,32 @@ All notable changes to this project are documented here. The format follows
   a checkout of the website, copies the MP4 videos and poster images there too.
 - The release workflow waits for the GitHub release to exist before it pushes images, instead of
   failing only at the final upload.
-- A lease created before its policy waits in `Pending` with reason `PolicyNotFound` and activates when
-  the policy appears, so GitOps tools can apply objects in any order. A lease that was evaluated
-  before its policy was deleted is still `Denied`, and one already past its recorded expiry is
-  `Expired`. The controller confirms that a policy is absent with an uncached read.
+- A lease created before its policy waits in `Pending` with reason `PolicyNotFound` for up to
+  5 minutes after its creation, and its message names the deadline, so GitOps tools can apply objects
+  in any order. It activates if the policy appears in that time; after that it is `Denied`, and it is
+  `Expired` if its `spec.duration` ends first. A lease that was evaluated before its policy was
+  deleted is still `Denied`, and one already past its recorded expiry is `Expired`. The controller
+  confirms that a policy is absent with an uncached read.
 - The rendered `XAccessPolicy` no longer carries the `fleetpermit.github.io/policy-generation`
   annotation, so a policy edit that does not change a cluster's grants causes no rollout.
 - New CRD rules: a policy with `lease.required: false` may list at most 5 subjects, and `target.ref`
   must be `XBackend` in `agentic.networking.x-k8s.io` or `Gateway` in `gateway.networking.k8s.io`.
   Existing objects that break a rule are rejected only when their spec is next changed.
+- `target.ref.group` has no default any more. When it is unset, it follows the kind:
+  `agentic.networking.x-k8s.io` for `XBackend` and `gateway.networking.k8s.io` for `Gateway`, so a
+  Gateway target no longer needs the group spelled out.
+- `lease.defaultDuration` has no field default any more. When it is unset, a lease without a duration
+  gets `15m`, or the policy's `maxDuration` if that is shorter, so a policy with a short maximum no
+  longer needs to set `defaultDuration`. An omitted `lease` block still defaults to
+  `{required: true, defaultDuration: 15m, maxDuration: 1h}`.
+- The controller adds and removes its finalizer with a merge patch that leaves the spec alone, so its
+  role has `patch` instead of `update` on `fleetaccesspolicies`.
+- An active lease's `status.clusters` also lists clusters that left the placement and are still being
+  withdrawn from; they do not affect `Ready`.
+- A withdrawal from, or a re-delivery to, a cluster that OCM reports unavailable is reported as
+  `ClusterUnavailable` and counts as failed (policy `Degraded` with `ClustersFailed`, not
+  `Progressing`). It waits for the cluster to reconnect instead of being retried quickly.
+- The integration suite can run several times against one API server (`go test -count=N`).
 - A cluster is `Ready` only when OCM's status feedback reports the content digest the hub delivered;
   until then it is `AwaitingAcceptance`.
 - Delivery failures are retried after 1 s, then 2, 4, 8 s and so on up to 2 minutes while they
@@ -96,8 +113,8 @@ All notable changes to this project are documented here. The format follows
   withdraws an expired or denied lease's grant.
 - `fleetpermit_policy_propagation_seconds` was observed again, with the lease's full age, whenever a
   lease went back to Ready. It is now observed once per lease per controller process.
-- The controller's role no longer has `update` or `patch` on `toolaccessleases`, `update` on
-  `manifestworks`, on the status subresources or on `fleetaccesspolicies/finalizers`, or `patch` on
+- The controller's role no longer has `update` or `patch` on `toolaccessleases`, or `update` on
+  `manifestworks`, on the status subresources, on `fleetaccesspolicies/finalizers` or on
   `fleetaccesspolicies`, which it did not need.
 - The YAML check now also covers `.yaml` workflow files and the demo manifests.
 - The inert policy is now validated against the upstream `XAccessPolicy` schema in the integration
@@ -124,6 +141,22 @@ All notable changes to this project are documented here. The format follows
   unchanged.
 - Tampered ManifestWork fields other than the manifests (delete option, update strategy, executor)
   were not restored. They now are.
+- Security: a policy deleted without its finalizer and re-created under the same name left the
+  earlier policy's ManifestWorks in place, and the new policy could never deliver. The controller now
+  deletes ManifestWorks that carry the policy's name but another UID, on placed and unplaced
+  clusters, each on condition that its UID is unchanged; a placed cluster shows `Delivering` until
+  they are gone.
+- Restoring a tampered ManifestWork now also removes fields FleetPermit never sets: ignored fields,
+  condition rules, a deletion TTL, selective orphaning and extra manifest configurations.
+- A policy created with v0.1.0 that a newer CRD rule rejects could not be deleted, because adding or
+  removing the finalizer rewrote the whole object. The finalizer change is now a merge patch; an
+  upgrade test starts from the v0.1.0 CRDs.
+- The lease immutability rule rejected an unchanged duration written in another form (`30m0s` for
+  `30m`). Durations are now compared by value.
+- The CRD description of a cluster's `grants` in the policy status said it counted lease grants only.
+  It counts lease and standing grants, as it always did, and the description now says so.
+- Lease metrics could be counted twice when a status write failed and the reconcile was retried. They
+  are now recorded once, after the write succeeds.
 
 ## [v0.1.0] - 2026-09-26
 

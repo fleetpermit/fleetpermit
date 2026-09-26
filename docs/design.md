@@ -134,8 +134,9 @@ version can move to it.
 
 ## ADR-6: Leases are immutable and terminal states are sticky
 
-- `ToolAccessLease.spec` is immutable (a CEL `self == oldSelf` rule), so every grant corresponds to
-  exactly one reviewed request.
+- `ToolAccessLease.spec` is immutable, so every grant corresponds to exactly one reviewed request. A
+  CEL rule compares each spec field with its old value, and the duration by value, so an unchanged
+  duration that a client writes in another form (`30m0s` for `30m`) is accepted (v0.1.1).
 - Expiry is `metadata.creationTimestamp + duration`. The API server assigns the creation timestamp,
   so the requester cannot choose it. A lease that omits `duration` gets the policy's
   `defaultDuration` in effect when it is first evaluated. That expiry is then pinned through
@@ -160,10 +161,14 @@ version can move to it.
   recorded expiry becomes `Expired` instead, and an expired lease stays `Expired`
   (v0.1.1, `TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted`,
   `TestLeasePastItsRecordedExpiryIsExpiredWhenItsPolicyIsMissing`).
-- A lease created before its policy is not denied. It waits in `Pending` with reason `PolicyNotFound`
-  and activates when the policy appears, because GitOps tools apply objects in no fixed order
-  (v0.1.1, `TestLeaseCreatedBeforeItsPolicyActivates`). The controller confirms that the policy is
-  absent with an uncached read before it denies any lease or deletes any delivery.
+- A lease created before its policy is not denied at once, because GitOps tools apply objects in no
+  fixed order. It waits in `Pending` with reason `PolicyNotFound` for up to 5 minutes after its
+  creation, and its message names the deadline. It activates if the policy appears in that time; after
+  that it is `Denied`, and if its `spec.duration` ends first it is `Expired` (v0.1.1,
+  `TestLeaseCreatedBeforeItsPolicyActivates`, `TestLeaseWaitsForAMissingPolicyForAGracePeriodOnly`).
+  The bound keeps a lease for a mistyped policy name from waiting for ever. The controller confirms
+  that the policy is absent with an uncached read before it denies any lease or deletes any
+  delivery.
 - A lease without `clusters` follows the placement as it changes, within its expiry. A lease with
   `clusters` only ever intersects them with the placement.
 

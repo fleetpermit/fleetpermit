@@ -144,7 +144,7 @@ Generated from the `+kubebuilder:rbac` markers in `internal/controller` ([`confi
 
 | API group | Resources | Verbs | Why |
 |---|---|---|---|
-| `fleetpermit.github.io` | fleetaccesspolicies | get, list, watch, update | reconcile policies; add and remove the cleanup finalizer |
+| `fleetpermit.github.io` | fleetaccesspolicies | get, list, watch, patch | reconcile policies; add and remove the cleanup finalizer with a merge patch that leaves the spec alone |
 | `fleetpermit.github.io` | toolaccessleases | get, list, watch | read leases; the controller never changes a lease's spec |
 | `fleetpermit.github.io` | fleetaccesspolicies/status, toolaccessleases/status | get, patch | report status |
 | `cluster.open-cluster-management.io` | placements, placementdecisions, managedclusters | get, list, watch | resolve placements; report unavailable clusters |
@@ -260,7 +260,8 @@ v0.1.0 the trace exporter could not start; use v0.1.1 or later for tracing.
   `Denied` with reason `PolicyNotFound`; a lease already past its recorded expiry becomes `Expired`,
   and expired leases stay `Expired`. Denied is terminal, so recreating the policy does not revive
   those leases. A lease that was never evaluated (for example one applied just before the policy)
-  waits in `Pending` and would activate if the policy were created again, so delete such leases too.
+  waits in `Pending` for up to 5 minutes after its creation and would activate if the policy were
+  created again in that time, so delete such leases too. After that it is denied.
 - Deleting only the policy's placement also withdraws every grant, and the policy reports
   `Degraded/PlacementNotFound`. Its leases are not denied, though. They go to phase `Pending`
   (`NoEligibleClusters`), and a lease that has not expired is delivered again if the placement comes
@@ -276,8 +277,17 @@ v0.1.0 the trace exporter could not start; use v0.1.1 or later for tracing.
   ```
 
   State lives in the API, and a restart neither withdraws nor re-creates grants. The upgrade from
-  v0.1.0 to v0.1.1 adds the CRD rule that rejects lease durations below 10 s, and renames delivered
-  objects; see the [changelog](../CHANGELOG.md).
+  v0.1.0 to v0.1.1 renames delivered objects (see the [changelog](../CHANGELOG.md)) and adds three
+  CRD rules:
+
+  - a lease `duration` of at least 10 s;
+  - at most 5 subjects on a policy with `lease.required: false`;
+  - `target.ref` as `XBackend` in `agentic.networking.x-k8s.io` or `Gateway` in
+    `gateway.networking.k8s.io`, where the group may be omitted and then follows the kind.
+
+  Existing objects that break a rule stay in place, and the API server applies the rules when their
+  spec is next changed. The controller adds and removes its finalizer with a merge patch that leaves
+  the spec alone, so such a policy can still be deleted (`TestUpgradeFromV010`).
 - The chart deploys the controller image named by the chart's `appVersion`. A `main` checkout
   therefore deploys the image of that release, not the code you checked out, and while a release is
   being prepared but not yet tagged, that image does not exist. Install from a release tag or from
