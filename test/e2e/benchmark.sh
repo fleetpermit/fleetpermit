@@ -92,7 +92,7 @@ jq -s --arg gen "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg k8s "$(kc cluster-east ve
       description: "Local kind clusters (1 hub + 3 managed) on one development host, not a production benchmark",
       kubernetes: $k8s, openClusterManagement: $ocm, kubeAgenticNetworking: $kan, envoy: $envoy, os: $os, arch: $arch,
       ocmStatusSyncInterval: $sync,
-      method: "host-side real MCP calls via kubectl exec; east and west are polled concurrently from the same start time; each latency includes one probe round trip (see probeRoundTripMs)"
+      method: "Real MCP calls made from the host with kubectl exec. East and west are polled at the same time from one start time, and each latency includes one probe round trip (see the probe round trip row)"
     },
     samples: $s
   }' "$S" >"${FP_RESULTS_DIR}/benchmark.json"

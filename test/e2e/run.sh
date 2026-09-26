@@ -332,7 +332,7 @@ s11_s12() {
   west_after="$(probe sre-agent cluster-west restart_workload | jq -c .)"
   [[ "$(jq -r .decision <<<"$east_after")" == DENY && "$(jq -r .decision <<<"$west_after")" == DENY ]] || st12=fail
   record S12 "Reconnection: hub marks the lease Expired and withdraws stale grants" "$st12" \
-    "lease Expired, rendered policies removed, calls stay DENY" "converged ${converged}ms after the hub resumed" \
+    "lease Expired, grants withdrawn (the policy with no active grants remains), calls stay DENY" "converged ${converged}ms after the hub resumed" \
     "$(arr "$east_after" "$west_after")" "$(jq -cn --argjson c "$converged" '{reconnectConvergenceMs:$c}')"
 }
 
