@@ -18,7 +18,6 @@ rules:
   - fleetpermit.github.io
   resources:
   - fleetaccesspolicies
-  - toolaccessleases
   verbs:
   - get
   - list
@@ -40,6 +39,14 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - fleetpermit.github.io
+  resources:
+  - toolaccessleases
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - work.open-cluster-management.io
   resources:

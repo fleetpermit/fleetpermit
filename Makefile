@@ -1,8 +1,9 @@
 # Copyright The FleetPermit Authors.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Every CI job calls a target in this file, so anything CI does can be run
-# locally with the same command. Run `make help` for the list.
+# CI's build, test and verification steps call targets in this file, so they
+# can be run locally with the same command. Release publishing lives in the
+# release workflow and hack/ scripts. Run `make help` for the list.
 
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -euo pipefail -c
@@ -82,7 +83,7 @@ verify-generate: generate ## Fail if generated files are stale.
 	@git diff --exit-code -- api config charts/fleetpermit/crds charts/fleetpermit/files || (echo "run 'make generate' and commit the result"; exit 1)
 
 .PHONY: verify-manifests
-verify-manifests: ## Validate YAML manifests and samples parse.
+verify-manifests: ## Parse the YAML files (tab check only without PyYAML) and render the lab workloads.
 	./hack/verify-manifests.sh
 
 .PHONY: verify-helm

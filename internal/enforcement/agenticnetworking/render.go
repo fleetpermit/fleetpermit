@@ -25,8 +25,8 @@ limitations under the License.
 // FleetPermit, Open Cluster Management or network connectivity to the hub.
 // Upstream evaluates CEL rules for tools/call only; MCP session methods
 // (initialize, tools/list, ping) are granted by a separate inline rule per
-// subject that lives exactly as long as that subject holds a grant on the
-// cluster.
+// subject. That rule has no time bound in the data plane: the controller
+// removes it when the subject has no grant left on the cluster.
 package agenticnetworking
 
 import (

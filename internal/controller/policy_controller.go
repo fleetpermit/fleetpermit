@@ -78,7 +78,8 @@ type PolicyReconciler struct {
 	clustersByKy map[types.NamespacedName]int
 }
 
-// +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies;toolaccessleases,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=fleetpermit.github.io,resources=toolaccessleases,verbs=get;list;watch
 // +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies/status;toolaccessleases/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=placements;placementdecisions;managedclusters,verbs=get;list;watch
@@ -329,7 +330,10 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 					pending = append(pending, c)
 				}
 			}
-			if len(pending) == 0 && len(st.Clusters) > 0 && (st.Phase == fpv1.LeaseActive || st.Phase == fpv1.LeasePending) {
+			// Observe once, when the last cluster has withdrawn the grant. The
+			// phase is usually already Denied or Expired by then, because the
+			// withdrawal takes more than one reconcile.
+			if len(pending) == 0 && len(st.Clusters) > 0 {
 				ref := s.now
 				if d.Expired {
 					ref = d.ExpiresAt

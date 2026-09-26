@@ -68,6 +68,8 @@ func TestRenderedPoliciesAreValidUpstreamObjects(t *testing.T) {
 		"gateway target": {fpv1.TargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "agentic-gateway"}, []enforcement.Grant{
 			{ID: "a", Lease: "a", Subject: sreID, Tools: []string{"restart_workload"}, ExpiresAt: expiry}}},
 		"at rule capacity": {fpv1.TargetRef{Name: "fleet-tools"}, many},
+		// A placed cluster without grants receives the inert policy.
+		"no grants (inert policy)": {fpv1.TargetRef{Name: "fleet-tools"}, nil},
 	}
 	i := 0
 	for name, tc := range cases {

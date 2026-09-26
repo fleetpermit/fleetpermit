@@ -1,5 +1,6 @@
 # OpenSSF Scorecard (an OpenSSF / Linux Foundation project): supply-chain
-# security checks, published so the README can show the score.
+# security checks. Results are published to the OpenSSF Scorecard API and the
+# repository's code scanning alerts.
 name: OpenSSF Scorecard
 on:
   push:

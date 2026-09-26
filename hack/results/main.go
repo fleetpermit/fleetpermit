@@ -342,7 +342,7 @@ func markdown(out map[string]any) string {
 			m, _ := s.(map[string]any)
 			w("| %s | %s | %s | %s | %s |\n", str(m["id"]), esc(str(m["name"])), strings.ToUpper(str(m["status"])), esc(str(m["expected"])), esc(str(m["observed"])))
 		}
-		w("\nRaw evidence (every probe response) is in `test-results/e2e-results.json`.\n\n")
+		w("\nThe probe responses that decided each scenario are in `test-results/e2e-results.json`.\n\n")
 		if calls, matched, ok := matrixSummary(e2e); ok {
 			w("### Decision matrix\n\nTest agents:\n\n%s\n%s of %s real calls matched the expected outcome.\n", agentsMarkdown(e2e), matched, calls)
 			w("%s\n", matrixMarkdown(e2e, "active", "expired"))
@@ -368,14 +368,16 @@ func markdown(out map[string]any) string {
 		}
 		w("\n")
 		w("Sources of variance in these runs:\n\n")
-		w("- Each sample includes one host-to-pod probe round trip (see the baseline row). Probes repeat every 250 ms, which adds up to 250 ms more. " +
-			"Clusters are polled at the same time, so clusters that change within the same polling round report the same value.\n")
+		w("- Each sample includes one host-to-pod probe round trip (see the baseline row). The poller waits 250 ms between probes, " +
+			"so a change is seen up to one round trip plus 250 ms after it happens. Clusters are polled at the same time, so clusters " +
+			"that change within the same polling round report the same value.\n")
 		sync := "the klusterlet status sync interval"
 		if env, ok := out["benchmarkEnvironment"].(map[string]any); ok && str(env["ocmStatusSyncInterval"]) != "" {
 			sync += " (" + str(env["ocmStatusSyncInterval"]) + " in the lab)"
 		}
-		w("- Drift recovery is bounded by %s: FleetPermit requests an immediate re-apply once OCM reports the object missing.\n", sync)
-		w("- Ready status includes OCM status feedback, so it depends on the same interval.\n")
+		w("- Drift recovery depends on %s: OCM reports the deleted object missing at its next status sync, and FleetPermit then "+
+			"requests an immediate re-apply.\n", sync)
+		w("- Ready status also waits for the OCM work agent's status feedback on the delivered object.\n")
 		if e2e, ok := out["e2e"].(map[string]any); ok {
 			if east, west, ok := s1Activation(e2e); ok && math.Max(east, west) > 2000 {
 				w("- Slow first activation in this run: cluster-east %.0f ms, cluster-west %.0f ms. The suite saves hub and "+
@@ -554,8 +556,8 @@ func updateReadme(path string, out map[string]any) error {
 			for _, rep := range reps {
 				env, _ := rep["environment"].(map[string]any)
 				sum, _ := rep["summary"].(map[string]any)
-				fmt.Fprintf(&r, "- **Reproduced** on %s (%s/%s, %s): %s passed, %s failed, %s unsupported ([run logs](%s)).\n",
-					str(rep["runner"]), str(env["os"]), str(env["arch"]), str(env["containerEngine"]),
+				fmt.Fprintf(&r, "- **Reproduced** at commit %s on %s (%s/%s, %s): %s passed, %s failed, %s unsupported ([run logs](%s)).\n",
+					str(env["fleetpermitCommit"]), str(rep["runner"]), str(env["os"]), str(env["arch"]), str(env["containerEngine"]),
 					str(sum["passed"]), str(sum["failed"]), str(sum["unsupported"]), str(rep["runURL"]))
 			}
 		}

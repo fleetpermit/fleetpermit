@@ -36,8 +36,11 @@ const (
 	EnforcementProviderAgenticNetworking = "kubernetes-agentic-networking"
 )
 
-// FailModeClosed means that any error, missing input or unreachable
-// component results in less authority, never more.
+// FailModeClosed means that errors, missing inputs and unreachable components
+// lead FleetPermit to withdraw or withhold grants, never to add them. A
+// backend with no grant at all stays closed only while the default-deny
+// anchor policy is installed, because the upstream data plane allows every
+// call to a backend that has no XAccessPolicy.
 const FailModeClosed = "Closed"
 
 // FleetAccessPolicySpec is the maximum authority that leases may activate.

@@ -2,9 +2,11 @@
 # Copyright The FleetPermit Authors.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Parses every YAML manifest in the repository and checks that generated
-# workload manifests render. Server-side schema validation of the samples and
-# rendered objects happens in the integration tests (make test-integration).
+# Parses the repository's YAML files (config, charts except templates, GitHub
+# workflows, test fixtures and demo manifests) with PyYAML when it is
+# installed, and otherwise only checks them for tab characters. Then checks
+# that the lab workload manifests render. Server-side schema validation of the
+# samples and rendered objects happens in the integration tests.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 - <<'PY'
@@ -13,8 +15,9 @@ try:
     import yaml  # optional
 except ImportError:
     yaml = None
-files = [f for pattern in ("config/**/*.yaml", "charts/**/*.yaml", ".github/**/*.yml", "test/fixtures/**/*.yaml")
-         for f in glob.glob(pattern, recursive=True) if "/templates/" not in f]
+patterns = ("config/**/*.yaml", "charts/**/*.yaml", ".github/**/*.yaml", ".github/**/*.yml",
+            "test/fixtures/**/*.yaml", "demo/**/*.yaml")
+files = sorted({f for pattern in patterns for f in glob.glob(pattern, recursive=True) if "/templates/" not in f})
 bad = 0
 for f in files:
     text = open(f).read()

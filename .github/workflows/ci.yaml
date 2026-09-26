@@ -1,4 +1,4 @@
-# Every step calls a make target, so CI can be reproduced locally with the same command.
+# The build and test steps call make targets, so they can be reproduced locally with the same command.
 name: CI
 on:
   push:

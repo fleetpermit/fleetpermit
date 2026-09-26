@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	dto "github.com/prometheus/client_model/go"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +40,7 @@ import (
 
 	fpv1 "github.com/fleetpermit/fleetpermit/api/v1alpha1"
 	"github.com/fleetpermit/fleetpermit/internal/enforcement/agenticnetworking"
+	"github.com/fleetpermit/fleetpermit/internal/metrics"
 	"github.com/fleetpermit/fleetpermit/internal/placement/ocm"
 )
 
@@ -1015,4 +1017,51 @@ func TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted(t *testing.T) {
 	if c := meta.FindStatusCondition(after.Status.Conditions, fpv1.ConditionDenied); c != nil && c.Status == metav1.ConditionTrue {
 		t.Fatalf("an expired lease must not also be Denied: %+v", c)
 	}
+}
+
+func revocationSamples(t testing.TB) uint64 {
+	t.Helper()
+	var m dto.Metric
+	if err := metrics.LeaseRevocation.Write(&m); err != nil {
+		t.Fatal(err)
+	}
+	return m.GetHistogram().GetSampleCount()
+}
+
+// TestRevocationIsMeasuredWhenGrantsAreWithdrawn checks that
+// fleetpermit_lease_revocation_seconds records a sample once an expired
+// lease's grant has been withdrawn from every cluster.
+func TestRevocationIsMeasuredWhenGrantsAreWithdrawn(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "revocation-metric", []string{"rm-east", "rm-west"}, []string{"rm-east", "rm-west"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	l := f.lease("incident-88", p.Name, time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	got := waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	before := revocationSamples(t)
+
+	clock.Set(got.CreationTimestamp.Add(time.Minute + time.Second))
+	poke(t, l)
+	waitLeasePhase(t, l, fpv1.LeaseExpired, fpv1.ReasonLeaseExpired)
+	eventually(t, 15*time.Second, "the grant to be withdrawn and the revocation measured", func() error {
+		ackWorks(t)
+		poke(t, l)
+		cur := getLease(t, l)
+		if len(cur.Status.Clusters) != 0 {
+			return fmt.Errorf("still withdrawing from %v", cur.Status.Clusters)
+		}
+		if n := revocationSamples(t); n <= before {
+			return fmt.Errorf("no revocation sample recorded (count %d)", n)
+		}
+		return nil
+	})
 }

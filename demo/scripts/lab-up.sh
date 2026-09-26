@@ -62,8 +62,9 @@ step_ocm() {
     wait_for 300 "$c to become available" hub wait --for=condition=ManagedClusterConditionAvailable "managedcluster/$c" --timeout=10s
   done
 
-  # How often the OCM work agent reports status feedback to the hub. This only
-  # affects how quickly FleetPermit *reports* Ready; enforcement is immediate.
+  # How often the OCM work agent reports status feedback to the hub. It affects
+  # how quickly FleetPermit reports Ready and how quickly a deleted delivered
+  # object is noticed and re-applied; enforcement of new content is immediate.
   for c in ${FP_MANAGED_CLUSTERS}; do
     kc "$c" patch klusterlet klusterlet --type merge \
       -p "{\"spec\":{\"workConfiguration\":{\"statusSyncInterval\":\"${OCM_STATUS_SYNC_INTERVAL}\"}}}" >/dev/null

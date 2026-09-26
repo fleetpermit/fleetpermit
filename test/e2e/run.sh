@@ -403,7 +403,7 @@ matrix() {
 
 rbac() {
   local sa="system:serviceaccount:${FP_SYSTEM_NAMESPACE}:fleetpermit-controller" st=pass line out=""
-  for check in "create pods" "get secrets" "create clusterrolebindings" "delete namespaces" "create manifestworks.work.open-cluster-management.io -n cluster-east" "list placementdecisions.cluster.open-cluster-management.io -n fleet"; do
+  for check in "create pods" "get secrets" "create clusterrolebindings" "delete namespaces" "update toolaccessleases.fleetpermit.github.io -n ${FP_FLEET_NAMESPACE}" "create manifestworks.work.open-cluster-management.io -n cluster-east" "list placementdecisions.cluster.open-cluster-management.io -n fleet"; do
     line="$(hub auth can-i ${check} --as "$sa" 2>/dev/null || true)"
     out+="${check}=${line}; "
     case "$check" in
@@ -411,7 +411,7 @@ rbac() {
       *) [[ "$line" == no ]] || st=fail ;;
     esac
   done
-  record RBAC "Controller ServiceAccount is least-privilege" "$st" "no pods/secrets/RBAC/namespaces; yes ManifestWork/PlacementDecision" "$out" "$(jq -cn --arg o "$out" '[$o]')"
+  record RBAC "Controller ServiceAccount is least-privilege" "$st" "no pods/secrets/RBAC/namespaces/lease updates; yes ManifestWork/PlacementDecision" "$out" "$(jq -cn --arg o "$out" '[$o]')"
 }
 
 metrics() {
@@ -425,7 +425,7 @@ metrics() {
     sleep 3
   done
   grep '^fleetpermit_' <<<"$body" >"${FP_RESULTS_DIR}/metrics-snapshot.txt" || true
-  for m in fleetpermit_reconcile_total fleetpermit_active_leases fleetpermit_expired_leases_total fleetpermit_denied_leases_total \
+  for m in fleetpermit_reconcile_total fleetpermit_reconcile_errors_total fleetpermit_active_leases fleetpermit_expired_leases_total fleetpermit_denied_leases_total \
            fleetpermit_authorized_clusters fleetpermit_policy_propagation_seconds fleetpermit_lease_revocation_seconds fleetpermit_placement_changes_total; do
     grep -q "^${m}" <<<"$body" || st=fail
   done

@@ -82,8 +82,10 @@ type ToolAccessLeaseStatus struct {
 	// +optional
 	Phase LeasePhase `json:"phase,omitempty"`
 
-	// ExpiresAt is creationTimestamp plus the effective duration. It is
-	// computed once from immutable inputs and never extended.
+	// ExpiresAt is creationTimestamp plus the effective duration. For a lease
+	// without spec.duration, the effective duration is the policy default in
+	// effect at the first evaluation, pinned here; policy changes never extend
+	// it. Only the controller should be allowed to write lease status.
 	// +optional
 	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
 
