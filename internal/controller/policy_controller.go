@@ -76,14 +76,18 @@ type PolicyReconciler struct {
 	mu           sync.Mutex
 	activeByKey  map[types.NamespacedName]int
 	clustersByKy map[types.NamespacedName]int
+	// readySeen holds, per policy, the leases this process has seen Ready,
+	// so propagation is observed once per lease and not again when a lease
+	// returns to Ready after another lease or the placement changed.
+	readySeen map[types.NamespacedName]map[types.UID]bool
 }
 
-// +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=fleetpermit.github.io,resources=toolaccessleases,verbs=get;list;watch
-// +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies/status;toolaccessleases/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies/status;toolaccessleases/status,verbs=get;patch
 // +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=placements;placementdecisions;managedclusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=work.open-cluster-management.io,resources=manifestworks,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=work.open-cluster-management.io,resources=manifestworks,verbs=get;list;watch;create;patch;delete
 
 // Reconcile brings the fleet in line with one FleetAccessPolicy.
 func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
@@ -302,6 +306,9 @@ func (s *snapshot) clusterInSync(c string) (bool, string, string) {
 func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.FleetAccessPolicy, s *snapshot) (time.Duration, error) {
 	var next time.Duration
 	active := 0
+	key := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}
+	seenBefore := r.readyLeases(key)
+	seenNow := map[types.UID]bool{}
 	for i := range s.leases {
 		l := &s.leases[i]
 		d := s.decisions[l.UID]
@@ -377,6 +384,9 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 				// The lease grants nothing anywhere: no requested cluster is
 				// placed, or the rule limit was reached on every one of them.
 				st.Phase = fpv1.LeasePending
+				if wasReady || seenBefore[l.UID] {
+					seenNow[l.UID] = true
+				}
 				reason, msg := d.Reason, d.Message
 				if len(dropped) > 0 {
 					reason = fpv1.ReasonCapacityExceeded
@@ -410,9 +420,12 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 				msg += "; ignored clusters outside the placement: " + strings.Join(d.OutsidePlacement, ", ")
 			}
 			ready := len(waiting) == 0 && len(failed) == 0 && len(dropped) == 0
+			if ready || wasReady || seenBefore[l.UID] {
+				seenNow[l.UID] = true
+			}
 			if ready {
 				setCond(&st.Conditions, gen, fpv1.ConditionReady, true, fpv1.ReasonLeaseActive, msg)
-				if !wasReady {
+				if !wasReady && !seenBefore[l.UID] {
 					metrics.PolicyPropagation.Observe(s.now.Sub(l.CreationTimestamp.Time).Seconds())
 				}
 			} else {
@@ -445,7 +458,7 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 			}
 		}
 	}
-	key := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}
+	r.setReadyLeases(key, seenNow)
 	authorized := 0
 	for _, res := range s.results {
 		if len(res.Rendered) > 0 {
@@ -533,6 +546,7 @@ func (r *PolicyReconciler) finalize(ctx context.Context, p *fpv1.FleetAccessPoli
 		}
 	}
 	r.recordGauges(types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, 0, 0)
+	r.setReadyLeases(types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, nil)
 	if controllerutil.RemoveFinalizer(p, Finalizer) {
 		return r.Update(ctx, p)
 	}
@@ -597,6 +611,27 @@ func (r *PolicyReconciler) recordGauges(key types.NamespacedName, active, cluste
 	}
 	metrics.ActiveLeases.Set(float64(totalActive))
 	metrics.AuthorizedClusters.Set(float64(totalClusters))
+}
+
+func (r *PolicyReconciler) readyLeases(key types.NamespacedName) map[types.UID]bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.readySeen[key]
+}
+
+// setReadyLeases replaces the policy's set with the leases that are still
+// live, which keeps it bounded; nil drops the policy.
+func (r *PolicyReconciler) setReadyLeases(key types.NamespacedName, leases map[types.UID]bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if leases == nil {
+		delete(r.readySeen, key)
+		return
+	}
+	if r.readySeen == nil {
+		r.readySeen = map[types.NamespacedName]map[types.UID]bool{}
+	}
+	r.readySeen[key] = leases
 }
 
 // sticky keeps Denied and Expired terminal: a lease that was denied or has

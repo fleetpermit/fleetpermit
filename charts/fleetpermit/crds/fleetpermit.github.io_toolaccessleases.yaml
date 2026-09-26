@@ -158,7 +158,9 @@ spec:
                 format: int32
                 type: integer
               clusters:
-                description: Clusters that hold an active grant for this lease, sorted.
+                description: |-
+                  Clusters that hold an active grant for this lease, sorted. After expiry
+                  or denial, the clusters from which the grant is still being withdrawn.
                 items:
                   type: string
                 type: array

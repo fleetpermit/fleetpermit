@@ -5,8 +5,10 @@
 # Records the three demo videos from REAL runs of demo/run.sh against the lab:
 # asciinema captures the terminal, agg renders it, ffmpeg encodes MP4.
 # Output: dist/video/{demo-overview,demo-security,demo-disconnected-expiry}.{cast,mp4}
-# plus a poster PNG for each, and README GIFs in docs/assets/. Media tools are
-# development tooling only.
+# plus a poster PNG for each, README GIFs in docs/assets/, and a copy of each
+# cast in demo/recordings/. With FP_SITE_DIR set, the MP4s and JPEG posters are
+# also copied into that website checkout. Media tools are development tooling
+# only.
 #
 #   FP_VIDEO_OUT   output directory (default dist/video)
 set -euo pipefail
@@ -45,3 +47,15 @@ for d in ${FP_DEMOS:-overview security disconnect}; do
     disconnect) record demo-disconnected-expiry disconnect "FleetPermit: the lease expires even when the hub is gone" 1 ;;
   esac
 done
+
+# Keep the casts in the repository, next to the README that describes them.
+cp "${out}"/demo-*.cast demo/recordings/
+# With FP_SITE_DIR set to a website checkout, publish the videos and posters.
+if [[ -n "${FP_SITE_DIR:-}" && -d "${FP_SITE_DIR}/assets/video" ]]; then
+  for f in "${out}"/demo-*.mp4; do
+    n="$(basename "$f" .mp4)"
+    cp "$f" "${FP_SITE_DIR}/assets/video/${n}.mp4"
+    ffmpeg -loglevel error -y -i "${out}/${n}.png" -q:v 4 "${FP_SITE_DIR}/assets/video/${n}.jpg"
+  done
+  echo "   published videos to ${FP_SITE_DIR}/assets/video"
+fi

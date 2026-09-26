@@ -87,5 +87,4 @@ const (
 	ReasonAllowed              = "Allowed"
 	ReasonNoEligibleClusters   = "NoEligibleClusters"
 	ReasonCapacityExceeded     = "CapacityExceeded"
-	ReasonLeaseNotRequired     = "LeaseNotRequired"
 )

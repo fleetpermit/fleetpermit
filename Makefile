@@ -16,7 +16,6 @@ ENVTEST_K8S_VERSION ?= 1.35.0
 ENVTEST_VERSION ?= release-0.25
 GOVULNCHECK_VERSION ?= v1.1.4
 BOM_VERSION ?= v0.8.0
-KAN_VERSION ?= v0.2.0
 
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 SETUP_ENVTEST := $(BIN_DIR)/setup-envtest
@@ -93,7 +92,7 @@ verify-helm: ## Lint and render the Helm chart.
 
 .PHONY: verify-scripts
 verify-scripts: ## Syntax-check shell scripts.
-	@for f in $$(find demo hack -name '*.sh'); do bash -n "$$f"; done
+	@for f in $$(find demo hack test -name '*.sh'); do bash -n "$$f"; done
 
 .PHONY: verify-secrets
 verify-secrets: ## Scan tracked files for credentials, personal data and absolute home paths.
@@ -127,7 +126,7 @@ test-unit: ## Run unit tests with the race detector and record results and cover
 	go test -race -count=1 -json -coverpkg=./internal/... -coverprofile=$(TEST_OUT)/cover-unit.out \
 	  $$(go list ./... | grep -v /test/) > $(TEST_OUT)/unit.jsonl || \
 	  { jq -r 'select(.Action=="output") | .Output' $(TEST_OUT)/unit.jsonl | grep -v '^=== ' | tail -80; exit 1; }
-	@echo "unit: $$(grep -c '"Action":"pass","Package":"[^"]*","Test"' $(TEST_OUT)/unit.jsonl) tests passed"
+	@echo "unit: $$(grep -c '"Action":"pass","Package":"[^"]*","Test":"[^"/]*"' $(TEST_OUT)/unit.jsonl) tests passed (top-level)"
 
 FUZZTIME ?= 30s
 
@@ -143,7 +142,7 @@ test-integration: $(SETUP_ENVTEST) ## Run integration tests against a real kube-
 	  go test -count=1 -json -tags integration -coverpkg=./internal/... -coverprofile=$(TEST_OUT)/cover-integration.out \
 	  ./test/integration/... > $(TEST_OUT)/integration.jsonl || \
 	  { jq -r 'select(.Action=="output") | .Output' $(TEST_OUT)/integration.jsonl | grep -v '^=== ' | tail -80; exit 1; }
-	@echo "integration: $$(grep -c '"Action":"pass","Package":"[^"]*","Test"' $(TEST_OUT)/integration.jsonl) tests passed"
+	@echo "integration: $$(grep -c '"Action":"pass","Package":"[^"]*","Test":"[^"/]*"' $(TEST_OUT)/integration.jsonl) tests passed (top-level)"
 
 .PHONY: test-e2e
 test-e2e: ## Run the multi-cluster end-to-end scenarios against the lab (make demo-up first).
@@ -181,7 +180,7 @@ demo-run: ## Run the narrated authorization demo against the lab.
 
 .PHONY: demo-videos
 demo-videos: ## Record the three demo videos from real runs (asciinema, agg, ffmpeg; lab required).
-	./hack/record-demos.sh
+	FP_SITE_DIR="$$( [ -d "$(SITE_DIR)/.git" ] && echo "$(SITE_DIR)" )" ./hack/record-demos.sh
 
 .PHONY: demo-down
 demo-down: ## Delete the lab clusters (only those this lab created).

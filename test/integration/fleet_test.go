@@ -1065,3 +1065,49 @@ func TestRevocationIsMeasuredWhenGrantsAreWithdrawn(t *testing.T) {
 		return nil
 	})
 }
+
+func propagationSamples(t testing.TB) uint64 {
+	t.Helper()
+	var m dto.Metric
+	if err := metrics.PolicyPropagation.Write(&m); err != nil {
+		t.Fatal(err)
+	}
+	return m.GetHistogram().GetSampleCount()
+}
+
+// TestPropagationIsObservedOncePerLease checks that
+// fleetpermit_policy_propagation_seconds records a lease once, and not again
+// when the lease returns to Ready after another lease changed the content.
+func TestPropagationIsObservedOncePerLease(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "propagation-metric", []string{"pm-east"}, []string{"pm-east"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	first := f.lease("incident-91", p.Name, 10*time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	waitLeasePhase(t, first, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	before := propagationSamples(t)
+
+	// A second lease changes the rendered content, so the first lease is
+	// briefly not Ready while the new revision rolls out.
+	second := f.lease("incident-92", p.Name, 10*time.Minute, "get_cluster_health")
+	if err := k8s.Create(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	waitLeasePhase(t, second, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	waitLeasePhase(t, first, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	poke(t, first)
+	waitLeasePhase(t, first, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+
+	if got := propagationSamples(t) - before; got != 1 {
+		t.Fatalf("expected one new propagation sample (the second lease), got %d", got)
+	}
+}

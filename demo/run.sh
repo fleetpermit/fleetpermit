@@ -10,13 +10,13 @@
 # each ALLOWED/DENIED line is one MCP call through a real gateway.
 #
 # Usage: demo/run.sh [overview|security|disconnect]
-#   DEMO_LEASE_SECONDS  lease length for the overview (default 45)
+#   DEMO_LEASE_SECONDS  lease length for the overview (default 40)
 #   DEMO_PAUSE          seconds to pause between steps (default 1)
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test/e2e/lib.sh"
 
-DEMO_LEASE_SECONDS="${DEMO_LEASE_SECONDS:-45}"
+DEMO_LEASE_SECONDS="${DEMO_LEASE_SECONDS:-40}"
 DEMO_PAUSE="${DEMO_PAUSE:-1}"
 STEP=0
 TOTAL=0
@@ -210,7 +210,7 @@ disconnect() {
   step "Converged: expired grant withdrawn from the fleet"
   show_lease maintenance-window
   local obj; obj="$(kc cluster-east -n "${FP_TOOLS_NAMESPACE}" get xaccesspolicy -l app.kubernetes.io/managed-by=fleetpermit -o name | head -1)"
-  cmd "kubectl --context cluster-east -n ${FP_TOOLS_NAMESPACE} get ${obj##*/} -o jsonpath='{.spec.rules[*].name}'"
+  cmd "kubectl --context cluster-east -n ${FP_TOOLS_NAMESPACE} get ${obj} -o jsonpath='{.spec.rules[*].name}'"
   line "$(kc cluster-east -n "${FP_TOOLS_NAMESPACE}" get "${obj}" -o jsonpath='{.spec.rules[*].name}')   ${C_DIM}(the policy stays in place, with no grants)${C_0}"
   call sre-agent cluster-east restart_workload
 }

@@ -89,7 +89,8 @@ type ToolAccessLeaseStatus struct {
 	// +optional
 	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
 
-	// Clusters that hold an active grant for this lease, sorted.
+	// Clusters that hold an active grant for this lease, sorted. After expiry
+	// or denial, the clusters from which the grant is still being withdrawn.
 	// +optional
 	// +listType=set
 	Clusters []string `json:"clusters,omitempty"`

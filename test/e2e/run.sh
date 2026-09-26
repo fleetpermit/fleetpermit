@@ -49,7 +49,7 @@ record() {
   printf '  %s%-11s%s %-7s %s\n' "${color}" "$(tr '[:lower:]' '[:upper:]' <<<"$status")" "${C_0}" "$id" "$name"
 }
 
-# expect_decision <agent> <cluster> <tool> <want> — one call; prints the probe JSON.
+# expect <agent> <cluster> <tool> <want>: one call; prints the probe JSON.
 expect() {
   local out; out="$(probe "$1" "$2" "$3" "${5:-}")"
   printf '%s' "$(jq -c . <<<"$out")"
@@ -254,7 +254,7 @@ s10() {
   record S10 "Drift: rendered XAccessPolicy deleted on a managed cluster" "$st" \
     "denied while the grant is missing (anchor), then restored from the hub" \
     "right after deletion: $(jq -r .decision <<<"$immediate") (gateway not yet updated); 2s later: $(jq -r .decision <<<"$missing"); ALLOW restored ${recovered}ms after deletion" \
-    "$(arr "$immediate" "$missing" "$(cut -d' ' -f2- <<<"$restored")")" "$(jq -cn --argjson r "$recovered" '{driftRecoveryMs:$r}')"
+    "$(arr "$immediate" "$missing" "$(cut -d' ' -f2- <<<"$restored")")" "$(jq -cn --argjson r "$recovered" '{driftRecoveryToAllowMs:$r}')"
 }
 
 s15() {
@@ -403,7 +403,7 @@ matrix() {
 
 rbac() {
   local sa="system:serviceaccount:${FP_SYSTEM_NAMESPACE}:fleetpermit-controller" st=pass line out=""
-  for check in "create pods" "get secrets" "create clusterrolebindings" "delete namespaces" "update toolaccessleases.fleetpermit.github.io -n ${FP_FLEET_NAMESPACE}" "create manifestworks.work.open-cluster-management.io -n cluster-east" "list placementdecisions.cluster.open-cluster-management.io -n fleet"; do
+  for check in "create pods" "get secrets" "create clusterrolebindings" "delete namespaces" "update toolaccessleases.fleetpermit.github.io -n ${FP_FLEET_NAMESPACE}" "create manifestworks.work.open-cluster-management.io -n ${FP_MANAGED_CLUSTERS%% *}" "list placementdecisions.cluster.open-cluster-management.io -n ${FP_FLEET_NAMESPACE}"; do
     line="$(hub auth can-i ${check} --as "$sa" 2>/dev/null || true)"
     out+="${check}=${line}; "
     case "$check" in
@@ -447,12 +447,14 @@ main() {
   hub -n "${FP_FLEET_NAMESPACE}" delete toolaccesslease --all --wait=false >/dev/null 2>&1 || true
 
   local finished; finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  local env_desc="local kind clusters on a single development host; not a production benchmark"
+  [[ "${GITHUB_ACTIONS:-}" == true ]] && env_desc="kind clusters on a GitHub-hosted runner; not a production benchmark"
   local k8s_server; k8s_server="$(kc cluster-east version -o json | jq -r .serverVersion.gitVersion)"
   jq -s --arg started "$STARTED" --arg finished "$finished" --arg k8s "$k8s_server" \
     --arg ocm "${OCM_BUNDLE_VERSION}" --arg kan "${KAN_VERSION}" --arg gw "${GATEWAY_API_VERSION}" \
     --arg envoy "${ENVOY_IMAGE##*:}" --arg arch "$(uname -m)" --arg os "$(uname -s)" \
     --arg engine "${CONTAINER_ENGINE}" --arg kind "$(kind version | awk '{print $2}')" \
-    --arg fp "${FP_COMMIT}" \
+    --arg fp "${FP_COMMIT}" --arg desc "${env_desc}" \
     --arg clusters "${FP_MANAGED_CLUSTERS}" --arg sre "$(spiffe_of sre-agent)" --arg sec "$(spiffe_of security-agent)" '{
       kind: "real-multicluster-e2e",
       agents: [
@@ -461,7 +463,7 @@ main() {
       ],
       startedAt: $started, finishedAt: $finished,
       environment: {
-        description: "local kind clusters on a single development host; not a production benchmark",
+        description: $desc,
         hub: 1, managedClusters: ($clusters | split(" ") | length), clusterNames: ($clusters | split(" ")),
         kubernetes: $k8s, openClusterManagement: $ocm, kubeAgenticNetworking: $kan,
         gatewayAPI: $gw, envoy: $envoy, kind: $kind, containerEngine: $engine, os: $os, arch: $arch,

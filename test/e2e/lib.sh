@@ -213,7 +213,6 @@ wait_lease_phase() {
 
 set_env_label() { hub label managedcluster "$1" "env=$2" --overwrite >/dev/null; }
 
-xap_name() { hub -n "${FP_FLEET_NAMESPACE}" get fleetaccesspolicy "${FP_POLICY}" -o json | jq -r '"fleetpermit-" + .metadata.name' ; }
 
 # FleetPermit XAccessPolicy on a managed cluster that carries at least one
 # grant. (A placed cluster without grants holds an inert policy.)

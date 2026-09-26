@@ -62,10 +62,11 @@ var (
 		Help: "Policy/cluster pairs that currently hold rendered grants.",
 	})
 
-	// PolicyPropagation observes the time from lease creation to Ready on every target cluster.
+	// PolicyPropagation observes the time from lease creation to its first Ready
+	// on every target cluster.
 	PolicyPropagation = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name:    "fleetpermit_policy_propagation_seconds",
-		Help:    "Time from ToolAccessLease creation until every target cluster enforces it.",
+		Help:    "Time from ToolAccessLease creation until it is first Ready on every target cluster (once per lease per controller process).",
 		Buckets: []float64{0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89},
 	})
 

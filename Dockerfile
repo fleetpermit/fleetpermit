@@ -29,4 +29,6 @@ ARG BIN=fleetpermit-controller
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/${BIN} /${BIN}
 USER 65532:65532
+# ENTRYPOINT names the controller binary. The demo images are run with an
+# explicit command (/demo-mcp-tools or /demo-probe), as the lab manifests do.
 ENTRYPOINT ["/fleetpermit-controller"]

@@ -21,7 +21,6 @@ rules:
   verbs:
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -38,7 +37,6 @@ rules:
   verbs:
   - get
   - patch
-  - update
 - apiGroups:
   - fleetpermit.github.io
   resources:
@@ -57,5 +55,4 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch

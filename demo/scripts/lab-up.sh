@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Builds the FleetPermit lab: one Open Cluster Management hub and three
-# managed clusters running the Kubernetes SIG Agentic Networking reference
-# implementation, a deterministic MCP tool server and two agent identities.
+# managed clusters running the kube-agentic-networking reference gateway (a
+# Kubernetes SIG Network project) and a deterministic MCP tool server, with
+# two agent identities running on cluster-east.
 #
 # Usage: lab-up.sh [all|clusters|ocm|agentic|images|workloads|fleetpermit|status]
 

@@ -139,7 +139,8 @@ var latencyLabels = map[string]string{
 	"expiryToDenyMs":            "Lease expiry → first DENY (hub connected)",
 	"expiryToDenyHubDownMs":     "Lease expiry → first DENY (hub disconnected)",
 	"placementChangeMs":         "Cluster label change → authorization moves",
-	"driftRecoveryMs":           "Rendered policy deleted on a cluster → restored",
+	"driftRecoveryMs":           "Rendered policy deleted on a cluster → object restored",
+	"driftRecoveryToAllowMs":    "Rendered policy deleted on a cluster → calls allowed again",
 	"reconnectConvergenceMs":    "Hub reconnected → stale grants withdrawn",
 	"probeRoundTripMs":          "Probe round trip (measurement baseline)",
 }
@@ -177,7 +178,7 @@ func latencies(e2e, bench map[string]any) map[string]*latency {
 					add("expiryToDenyMs", "e2e "+id, f)
 				case strings.HasPrefix(k, "labelChangeTo"):
 					add("placementChangeMs", "e2e "+id, f)
-				case k == "driftRecoveryMs", k == "reconnectConvergenceMs":
+				case k == "driftRecoveryMs", k == "driftRecoveryToAllowMs", k == "reconnectConvergenceMs":
 					add(k, "e2e "+id, f)
 				}
 			}
@@ -495,7 +496,6 @@ func matrixMarkdown(e2e map[string]any, leases ...string) string {
 	return b.String()
 }
 
-// agentsMarkdown describes the workload identities used by the tests.
 // s1Activation returns scenario S1's lease-to-ALLOW times for east and west.
 func s1Activation(e2e map[string]any) (east, west float64, ok bool) {
 	for _, sc := range asSlice(e2e["scenarios"]) {
@@ -511,6 +511,39 @@ func s1Activation(e2e map[string]any) (east, west float64, ok bool) {
 	return 0, 0, false
 }
 
+// matrixFacts derives, from the recorded matrix, the tools and clusters for
+// which an ALLOW was expected while the lease was active, and how many calls
+// were made after it expired.
+func matrixFacts(e2e map[string]any) (tools, clusters []string, expiredCalls int) {
+	seenTool, seenCluster := map[string]bool{}, map[string]bool{}
+	for _, sc := range asSlice(e2e["scenarios"]) {
+		m, _ := sc.(map[string]any)
+		if m["id"] != "MATRIX" {
+			continue
+		}
+		for _, ev := range asSlice(m["evidence"]) {
+			r, _ := ev.(map[string]any)
+			switch {
+			case r["lease"] == "expired":
+				expiredCalls++
+			case r["lease"] == "active" && r["expected"] == "ALLOW":
+				if t := str(r["tool"]); !seenTool[t] {
+					seenTool[t] = true
+					tools = append(tools, t)
+				}
+				if c := str(r["cluster"]); !seenCluster[c] {
+					seenCluster[c] = true
+					clusters = append(clusters, c)
+				}
+			}
+		}
+	}
+	sort.Strings(tools)
+	sort.Strings(clusters)
+	return tools, clusters, expiredCalls
+}
+
+// agentsMarkdown describes the workload identities used by the tests.
 func agentsMarkdown(e2e map[string]any) string {
 	var b strings.Builder
 	for _, a := range asSlice(e2e["agents"]) {
@@ -564,14 +597,16 @@ func updateReadme(path string, out map[string]any) error {
 		if calls, matched, ok := matrixSummary(e2e); ok {
 			fmt.Fprintf(&r, "- **Decision matrix: %s of %s real MCP calls matched the expected outcome.**\n", matched, calls)
 			fmt.Fprintf(&r, "\n#### Test agents and expected outcomes\n\nTwo workload identities make every call. Both are test clients from this repository, not third-party or AI agents ([what they are](#the-two-test-agents)). Their SPIFFE X.509 certificates come from Kubernetes Pod Certificates:\n\n%s", agentsMarkdown(e2e))
-			fmt.Fprintf(&r, "\nThe lease grants `get_cluster_health` and `restart_workload` to `sre-agent`, on the clusters the placement selects (env=production: east and west). Each cell below is a real call through that cluster's gateway, showing the observed decision (✅/⛔ = matched the expectation, ❌ = did not):\n")
+			tools, clusters, expiredCalls := matrixFacts(e2e)
+			fmt.Fprintf(&r, "\nThe lease grants `%s` to `sre-agent`, on the clusters the placement selects (%s). Each cell below is a real call through that cluster's gateway, showing the observed decision (✅/⛔ = matched the expectation, ❌ = did not):\n",
+				strings.Join(tools, "` and `"), strings.Join(clusters, " and "))
 			r.WriteString(matrixMarkdown(e2e, "active"))
-			r.WriteString("\nAfter the lease expires, the same 24 calls are repeated. Expected: all DENY. ")
+			fmt.Fprintf(&r, "\nAfter the lease expires, the same %d calls are repeated. Expected: all DENY. ", expiredCalls)
 			exp := matrixMarkdown(e2e, "expired")
 			if strings.Contains(exp, "ALLOW") || strings.Contains(exp, "❌") {
 				r.WriteString("Observed:\n" + exp)
 			} else {
-				r.WriteString("Observed: all 24 DENY, as expected ([full table](docs/results.md#decision-matrix)).\n")
+				fmt.Fprintf(&r, "Observed: all %d DENY, as expected ([full table](docs/results.md#decision-matrix)).\n", expiredCalls)
 			}
 		}
 	}
@@ -582,7 +617,7 @@ func updateReadme(path string, out map[string]any) error {
 			}
 		}
 		fmt.Fprintf(&r, "\n| Measured on real clusters | n | p50 | p95 |\n|---|---|---|---|\n")
-		for _, k := range []string{"activationToAllowMs", "revocationToDenyMs", "expiryToDenyMs", "expiryToDenyHubDownMs", "driftRecoveryMs", "activationToReadyStatusMs", "probeRoundTripMs"} {
+		for _, k := range []string{"activationToAllowMs", "revocationToDenyMs", "expiryToDenyMs", "expiryToDenyHubDownMs", "driftRecoveryMs", "driftRecoveryToAllowMs", "activationToReadyStatusMs", "probeRoundTripMs"} {
 			row(k)
 		}
 	}

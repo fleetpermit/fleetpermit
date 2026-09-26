@@ -20,8 +20,9 @@ limitations under the License.
 // It authenticates with the SPIFFE X.509 identity that Kubernetes Pod
 // Certificates mount into the pod, verifies the gateway against the SPIFFE
 // trust bundle, runs the MCP initialize handshake, then calls tools/call. It
-// prints one JSON line describing the outcome, with no interpretation beyond
-// the HTTP status and JSON-RPC response it received.
+// prints one JSON line describing the outcome. A JSON-RPC error whose message
+// reads as an authorization refusal (forbidden, denied, RBAC) is reported as
+// DENY; the raw status and message are included in the output.
 package main
 
 import (
