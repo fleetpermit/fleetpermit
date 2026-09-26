@@ -1,0 +1,20 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "fleetpermit.name" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fleetpermit.labels" . | nindent 4 }}
+  {{- if .Values.metrics.scrapeAnnotations }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.metrics.port | quote }}
+    prometheus.io/path: /metrics
+  {{- end }}
+spec:
+  selector: {{- include "fleetpermit.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+{{- end }}

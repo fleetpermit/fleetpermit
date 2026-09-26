@@ -1,0 +1,69 @@
+# Default values for the FleetPermit controller. Install it on the Open
+# Cluster Management hub. Every value can be overridden with --set or -f.
+
+image:
+  # The default distribution location. Rebuild with `make images` and point
+  # these values at any registry.
+  registry: ghcr.io
+  repository: fleetpermit/fleetpermit-controller
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicas: 1
+
+leaderElection:
+  enabled: true
+
+# Restrict FleetPermit objects to a single namespace. Empty watches all.
+watchNamespace: ""
+
+# Optional: ServiceAccount (namespace/name) on managed clusters that the OCM
+# work agent applies FleetPermit content as. Requires OCM executor permissions.
+workExecutor: ""
+
+logLevel: info
+
+metrics:
+  enabled: true
+  port: 8080
+  # Adds prometheus.io/* scrape annotations to the metrics Service.
+  scrapeAnnotations: true
+
+# OpenTelemetry tracing is enabled when an OTLP endpoint is set.
+tracing:
+  otlpEndpoint: ""
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}

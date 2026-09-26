@@ -1,0 +1,20 @@
+# A policy that grants read-only tools without a lease (lease.required: false).
+apiVersion: fleetpermit.github.io/v1alpha1
+kind: FleetAccessPolicy
+metadata:
+  name: readonly-health
+  namespace: fleet
+spec:
+  subjects:
+    - spiffeID: spiffe://cluster.local/ns/agents/sa/sre-agent
+  placement:
+    placementRef:
+      name: production-clusters
+  target:
+    namespace: mcp-tools
+    ref:
+      name: fleet-tools
+  permissions:
+    - tool: get_cluster_health
+  lease:
+    required: false

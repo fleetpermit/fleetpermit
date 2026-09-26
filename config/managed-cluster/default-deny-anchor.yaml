@@ -1,0 +1,30 @@
+# Default-deny anchor for a tool backend governed by FleetPermit.
+#
+# The kube-agentic-networking reference implementation does not enforce
+# anything on a target that has no XAccessPolicy. Installing this anchor next
+# to the backend makes the target deny-by-default: its only rule can never
+# match, so every request is denied unless a FleetPermit grant allows it.
+# Install it with the backend, on every cluster, whether or not the cluster is
+# currently selected by a FleetPermit placement.
+apiVersion: agentic.networking.x-k8s.io/v1alpha1
+kind: XAccessPolicy
+metadata:
+  name: fleetpermit-default-deny
+  namespace: mcp-tools
+  labels:
+    app.kubernetes.io/part-of: fleetpermit
+spec:
+  targetRefs:
+    - group: agentic.networking.x-k8s.io
+      kind: XBackend
+      name: fleet-tools
+  action: Allow
+  rules:
+    - name: never-matches
+      source:
+        type: SPIFFE
+        spiffe: spiffe://fleetpermit.invalid/deny-all
+      authorization:
+        type: CEL
+        cel:
+          expression: "false"

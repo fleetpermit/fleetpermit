@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fleetpermit.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fleetpermit.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels: {{- include "fleetpermit.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fleetpermit.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{ end }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "fleetpermit.serviceAccountName" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: controller
+          image: {{ include "fleetpermit.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/fleetpermit-controller"]
+          args:
+            - --leader-elect={{ .Values.leaderElection.enabled }}
+            - --leader-election-namespace={{ .Release.Namespace }}
+            - --metrics-bind-address={{ if .Values.metrics.enabled }}:{{ .Values.metrics.port }}{{ else }}0{{ end }}
+            - --health-probe-bind-address=:8081
+            - --zap-log-level={{ .Values.logLevel }}
+            {{- with .Values.watchNamespace }}
+            - --watch-namespace={{ . }}
+            {{- end }}
+            {{- with .Values.workExecutor }}
+            - --work-executor={{ . }}
+            {{- end }}
+          {{- with .Values.tracing.otlpEndpoint }}
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+          {{- end }}
+          ports:
+            - {name: metrics, containerPort: {{ .Values.metrics.port }}}
+            - {name: probes, containerPort: 8081}
+          livenessProbe:
+            httpGet: {path: /healthz, port: probes}
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: probes}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

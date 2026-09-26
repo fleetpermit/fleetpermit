@@ -1,0 +1,68 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "fleetpermit.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fleetpermit.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- if .Values.rbac.create }}
+---
+# Generated from the +kubebuilder:rbac markers in internal/controller.
+# Read-only on OCM placement and cluster APIs; write only on ManifestWork and
+# FleetPermit's own objects. No secrets, no workloads, no cluster-admin.
+{{- $role := .Files.Get "files/role.yaml" | fromYaml }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "fleetpermit.name" . }}
+  labels: {{- include "fleetpermit.labels" . | nindent 4 }}
+rules: {{- toYaml $role.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "fleetpermit.name" . }}
+  labels: {{- include "fleetpermit.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "fleetpermit.name" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "fleetpermit.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Leader election and events, confined to the release namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "fleetpermit.name" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fleetpermit.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "fleetpermit.name" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fleetpermit.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "fleetpermit.name" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "fleetpermit.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

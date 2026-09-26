@@ -1,0 +1,15 @@
+# An Open Cluster Management Placement that selects production clusters.
+# FleetPermit reads its PlacementDecisions; it never changes the Placement.
+# The namespace must be bound to a ManagedClusterSet (ManagedClusterSetBinding).
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: production-clusters
+  namespace: fleet
+spec:
+  clusterSets: [fleet]
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchLabels:
+            env: production

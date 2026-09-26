@@ -1,0 +1,15 @@
+# Activates a subset of the policy for a bounded time.
+apiVersion: fleetpermit.github.io/v1alpha1
+kind: ToolAccessLease
+metadata:
+  name: incident-42
+  namespace: fleet
+spec:
+  policyRef:
+    name: sre-remediation
+  subject:
+    spiffeID: spiffe://cluster.local/ns/agents/sa/sre-agent
+  permissions:
+    - tool: restart_workload
+  duration: 10m
+  reason: "INC-42: checkout pods crash-looping"

@@ -1,0 +1,54 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fleetpermit-controller
+rules:
+- apiGroups:
+  - cluster.open-cluster-management.io
+  resources:
+  - managedclusters
+  - placementdecisions
+  - placements
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - fleetpermit.github.io
+  resources:
+  - fleetaccesspolicies
+  - toolaccessleases
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - fleetpermit.github.io
+  resources:
+  - fleetaccesspolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - fleetpermit.github.io
+  resources:
+  - fleetaccesspolicies/status
+  - toolaccessleases/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - work.open-cluster-management.io
+  resources:
+  - manifestworks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

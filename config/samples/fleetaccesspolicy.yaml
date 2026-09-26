@@ -1,0 +1,30 @@
+# The ceiling: who may call which tools, on which clusters, for how long.
+apiVersion: fleetpermit.github.io/v1alpha1
+kind: FleetAccessPolicy
+metadata:
+  name: sre-remediation
+  namespace: fleet
+spec:
+  subjects:
+    - spiffeID: spiffe://cluster.local/ns/agents/sa/sre-agent
+  placement:
+    provider: ocm
+    placementRef:
+      name: production-clusters
+  target:
+    protocol: MCP
+    namespace: mcp-tools
+    ref:
+      kind: XBackend
+      name: fleet-tools
+  permissions:
+    - tool: get_cluster_health
+    - tool: restart_workload
+    - tool: scale_workload
+  lease:
+    required: true
+    defaultDuration: 15m
+    maxDuration: 30m
+  enforcement:
+    provider: kubernetes-agentic-networking
+    failMode: Closed
