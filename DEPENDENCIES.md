@@ -47,7 +47,7 @@ The kube-agentic-networking `XAccessPolicy` CRD v0.2.0 is vendored unmodified, f
 | Helm | v4.1 | CNCF Graduated | installing the chart |
 | MetalLB | v0.15.3 | CNCF Sandbox | gateway addresses on kind |
 | controller-gen, setup-envtest | v0.22.0, release-0.25 | Kubernetes SIGs | code generation, integration tests |
-| bom | v0.7.1 | Kubernetes SIG Release | SPDX SBOM |
+| bom | v0.8.0 | Kubernetes SIG Release | SPDX SBOM |
 | govulncheck | v1.1.4 | Go project (toolchain exception) | vulnerability audit |
 | podman (or docker) | any | development infrastructure | runs kind nodes and builds images; FleetPermit code never calls it |
 | asciinema, agg, ffmpeg | any | OS media tooling | recording demo videos only |

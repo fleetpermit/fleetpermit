@@ -352,6 +352,11 @@ func markdown(out map[string]any) string {
 			w("| %s | %d | %d | %d | %d | %d | %s |\n", l.Label, len(l.Samples), l.P50, l.P95, l.Min, l.Max, l.Source)
 		}
 		w("\n")
+		w("Sources of variance, observed in these runs:\n\n")
+		w("- Each sample includes one host-to-pod probe round trip (see the baseline row), and polling adds up to about 250 ms.\n")
+		w("- Occasional activation outliers of a few seconds come from the OCM work agent retrying, with backoff, a status update that conflicted with FleetPermit's spec update on the same ManifestWork (`Operation cannot be fulfilled ... the object has been modified` in the work-agent log).\n")
+		w("- Drift recovery is bounded by the klusterlet status sync interval (10 s in the lab): FleetPermit requests an immediate re-apply once OCM reports the object missing.\n")
+		w("- Ready status includes OCM status feedback, so it depends on the same status sync interval.\n\n")
 	}
 
 	if sc, ok := out["scale"].(map[string]any); ok {
