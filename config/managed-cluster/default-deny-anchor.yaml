@@ -6,6 +6,14 @@
 # match, so every request is denied unless a FleetPermit grant allows it.
 # Install it with the backend, on every cluster, whether or not the cluster is
 # currently selected by a FleetPermit placement.
+#
+# Edit the namespace and targetRefs to match your policies' spec.target: the
+# anchor must target the same resource as the policies. For policies that
+# target a Gateway, point targetRefs at that Gateway (group
+# gateway.networking.k8s.io, kind Gateway). Upstream enforces gateway-level and
+# backend-level policies as separate checks that must both allow a call, so an
+# XBackend anchor next to Gateway-level grants would deny every call. The lab
+# exercises XBackend targets only.
 apiVersion: agentic.networking.x-k8s.io/v1alpha1
 kind: XAccessPolicy
 metadata:
