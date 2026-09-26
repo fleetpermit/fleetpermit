@@ -1,14 +1,14 @@
 {
   "integration": {
-    "passed": 16,
+    "passed": 18,
     "failed": 0,
     "skipped": 1,
-    "coverage": "87.3%"
+    "coverage": "87.8%"
   },
   "unit": {
-    "passed": 35,
+    "passed": 39,
     "failed": 0,
     "skipped": 0,
-    "coverage": "33.7%"
+    "coverage": "33.3%"
   }
 }
