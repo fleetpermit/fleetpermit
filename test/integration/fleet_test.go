@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 	workv1 "open-cluster-management.io/api/work/v1"
@@ -228,19 +229,24 @@ func getLease(t testing.TB, l *fpv1.ToolAccessLease) *fpv1.ToolAccessLease {
 
 // poke changes an annotation so the controller reconciles now, which is how
 // tests make the reconciler observe a moved fake clock.
+// It retries on conflicts, because the controller may patch the object's
+// status between the read and the update.
 func poke(t testing.TB, obj client.Object) {
 	t.Helper()
 	ctx := context.Background()
-	if err := k8s.Get(ctx, clientKey(obj), obj); err != nil {
-		t.Fatal(err)
-	}
-	a := obj.GetAnnotations()
-	if a == nil {
-		a = map[string]string{}
-	}
-	a["test.fleetpermit.github.io/poke"] = fmt.Sprint(time.Now().UnixNano())
-	obj.SetAnnotations(a)
-	if err := k8s.Update(ctx, obj); err != nil {
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := k8s.Get(ctx, clientKey(obj), obj); err != nil {
+			return err
+		}
+		a := obj.GetAnnotations()
+		if a == nil {
+			a = map[string]string{}
+		}
+		a["test.fleetpermit.github.io/poke"] = fmt.Sprint(time.Now().UnixNano())
+		obj.SetAnnotations(a)
+		return k8s.Update(ctx, obj)
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 }
