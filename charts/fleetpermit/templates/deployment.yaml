@@ -1,3 +1,6 @@
+{{- with .Values.watchNamespace }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" .) }}{{ fail "watchNamespace must be a namespace name (lowercase letters, digits and '-')" }}{{ end }}
+{{- end }}
 {{- if and (gt (int .Values.replicas) 1) (not .Values.leaderElection.enabled) }}
 {{- fail "replicas greater than 1 needs leaderElection.enabled=true" }}
 {{- end }}
