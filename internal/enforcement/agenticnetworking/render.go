@@ -45,16 +45,15 @@ import (
 
 // Label and annotation keys written on rendered objects.
 const (
-	LabelManagedBy       = "app.kubernetes.io/managed-by"
-	ManagedByValue       = "fleetpermit"
-	LabelPolicyUID       = "fleetpermit.github.io/policy-uid"
-	AnnotationPolicy     = "fleetpermit.github.io/policy"
-	AnnotationPolicyUID  = "fleetpermit.github.io/policy-uid"
-	AnnotationGeneration = "fleetpermit.github.io/policy-generation"
-	AnnotationCluster    = "fleetpermit.github.io/cluster"
-	AnnotationLeases     = "fleetpermit.github.io/lease-uids"
-	AnnotationDigest     = "fleetpermit.github.io/content-digest"
-	AnnotationExpiresAt  = "fleetpermit.github.io/expires-at"
+	LabelManagedBy      = "app.kubernetes.io/managed-by"
+	ManagedByValue      = "fleetpermit"
+	LabelPolicyUID      = "fleetpermit.github.io/policy-uid"
+	AnnotationPolicy    = "fleetpermit.github.io/policy"
+	AnnotationPolicyUID = "fleetpermit.github.io/policy-uid"
+	AnnotationCluster   = "fleetpermit.github.io/cluster"
+	AnnotationLeases    = "fleetpermit.github.io/lease-uids"
+	AnnotationDigest    = "fleetpermit.github.io/content-digest"
+	AnnotationExpiresAt = "fleetpermit.github.io/expires-at"
 )
 
 var (
@@ -160,12 +159,13 @@ func (Renderer) Render(req enforcement.Request) (enforcement.Result, error) {
 		return enforcement.Result{}, err
 	}
 
+	// The annotations carry no policy generation: a policy edit that leaves
+	// this cluster's grants unchanged must not change the delivered object.
 	ap.Metadata.Annotations = map[string]string{
-		AnnotationPolicy:     p.Namespace + "/" + p.Name,
-		AnnotationPolicyUID:  string(p.UID),
-		AnnotationGeneration: fmt.Sprintf("%d", p.Generation),
-		AnnotationCluster:    req.Cluster,
-		AnnotationDigest:     d,
+		AnnotationPolicy:    p.Namespace + "/" + p.Name,
+		AnnotationPolicyUID: string(p.UID),
+		AnnotationCluster:   req.Cluster,
+		AnnotationDigest:    d,
 	}
 	if len(leaseUIDs) > 0 {
 		ap.Metadata.Annotations[AnnotationLeases] = strings.Join(leaseUIDs, ",")

@@ -22,12 +22,19 @@ import (
 	"context"
 	"errors"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	fpv1 "github.com/fleetpermit/fleetpermit/api/v1alpha1"
 	"github.com/fleetpermit/fleetpermit/internal/enforcement"
 )
 
 // ErrPlacementNotFound is returned when the referenced placement does not exist.
 var ErrPlacementNotFound = errors.New("placement not found")
+
+// ErrStillDeleting is returned by Apply while the cluster's previous delivery
+// is still being deleted. Delivery is in progress, not failed: Apply succeeds
+// once the deletion has completed.
+var ErrStillDeleting = errors.New("the previous delivery is still being deleted")
 
 // ClusterState is the observed delivery state of one cluster.
 type ClusterState struct {
@@ -48,6 +55,10 @@ type Provider interface {
 	Apply(ctx context.Context, policy *fpv1.FleetAccessPolicy, cluster string, res enforcement.Result) error
 	// Remove deletes everything the policy delivered to the cluster.
 	Remove(ctx context.Context, policy *fpv1.FleetAccessPolicy, cluster string) error
-	// Observe reports every cluster that currently holds content for the policy.
+	// Withdraw deletes everything delivered, on every cluster, for a policy
+	// that no longer exists, identified by its namespace and name.
+	Withdraw(ctx context.Context, policy types.NamespacedName) error
+	// Observe reports every cluster that holds content for the policy,
+	// including content that is still being deleted.
 	Observe(ctx context.Context, policy *fpv1.FleetAccessPolicy) (map[string]ClusterState, error)
 }

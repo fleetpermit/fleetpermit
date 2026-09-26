@@ -98,6 +98,13 @@ func TestAPIRejectsMalformedPolicies(t *testing.T) {
 		{"unknown placement provider", func(p *fpv1.FleetAccessPolicy) { p.Spec.Placement.Provider = "other" }, "provider"},
 		{"fail open", func(p *fpv1.FleetAccessPolicy) { p.Spec.Enforcement.FailMode = "Open" }, "failMode"},
 		{"unknown target kind", func(p *fpv1.FleetAccessPolicy) { p.Spec.Target.Ref.Kind = "Service" }, "kind"},
+		{"Gateway kind in the default group", func(p *fpv1.FleetAccessPolicy) { p.Spec.Target.Ref.Kind = "Gateway" }, "target.ref must be"},
+		{"XBackend kind in the Gateway API group", func(p *fpv1.FleetAccessPolicy) { p.Spec.Target.Ref.Group = "gateway.networking.k8s.io" }, "target.ref must be"},
+		{"standing policy with six subjects", func(p *fpv1.FleetAccessPolicy) {
+			no := false
+			p.Spec.Lease.Required = &no
+			p.Spec.Subjects = subjects(6)
+		}, "at most 5 subjects"},
 		{"bad target namespace", func(p *fpv1.FleetAccessPolicy) { p.Spec.Target.Namespace = "Not_A_Namespace" }, "namespace"},
 		{"default above max", func(p *fpv1.FleetAccessPolicy) { p.Spec.Lease.DefaultDuration.Duration = time.Hour }, "defaultDuration must not exceed maxDuration"},
 		{"max above 24h", func(p *fpv1.FleetAccessPolicy) {
@@ -116,6 +123,48 @@ func TestAPIRejectsMalformedPolicies(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func subjects(n int) []fpv1.Subject {
+	out := make([]fpv1.Subject, n)
+	for i := range out {
+		out[i].SPIFFEID = fmt.Sprintf("spiffe://cluster.local/ns/agents/sa/agent-%d", i)
+	}
+	return out
+}
+
+// TestAPIAcceptsValidTargetsAndSubjectCounts checks the accepting side of the
+// target and standing-subject rules, including objects that rely on defaults.
+func TestAPIAcceptsValidTargetsAndSubjectCounts(t *testing.T) {
+	createNamespace(t, "api-accept")
+	no := false
+	cases := []struct {
+		name   string
+		mutate func(*fpv1.FleetAccessPolicy)
+	}{
+		{"XBackend target with defaults", func(p *fpv1.FleetAccessPolicy) { p.Spec.Target.Ref = fpv1.TargetRef{Name: "fleet-tools"} }},
+		{"Gateway target", func(p *fpv1.FleetAccessPolicy) {
+			p.Spec.Target.Ref = fpv1.TargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "agentic-gateway"}
+		}},
+		{"standing policy with five subjects", func(p *fpv1.FleetAccessPolicy) {
+			p.Spec.Lease.Required = &no
+			p.Spec.Subjects = subjects(5)
+		}},
+		{"lease policy with sixteen subjects", func(p *fpv1.FleetAccessPolicy) { p.Spec.Subjects = subjects(16) }},
+		{"defaulted lease settings with six subjects", func(p *fpv1.FleetAccessPolicy) {
+			p.Spec.Lease = fpv1.LeaseSettings{}
+			p.Spec.Subjects = subjects(6)
+		}},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := validPolicy("api-accept", fmt.Sprintf("ok-%d", i))
+			tc.mutate(p)
+			if err := k8s.Create(context.Background(), p); err != nil {
+				t.Fatalf("valid policy rejected: %v", err)
 			}
 		})
 	}

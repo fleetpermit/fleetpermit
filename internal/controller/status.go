@@ -84,14 +84,17 @@ func truncate(s string, n int) string {
 	return s[:n-3] + "..."
 }
 
-// patchLeaseStatus writes the status only when it changed.
+// patchLeaseStatus writes the status only when it changed. The patch is
+// conditional on the resource version that was read, so a status computed
+// from a stale cache never overwrites a newer one, such as a terminal state;
+// a conflict is returned and the policy is reconciled again.
 func (r *PolicyReconciler) patchLeaseStatus(ctx context.Context, l *fpv1.ToolAccessLease, st *fpv1.ToolAccessLeaseStatus) error {
 	if equality.Semantic.DeepEqual(&l.Status, st) {
 		return nil
 	}
 	base := l.DeepCopy()
 	l.Status = *st
-	return r.Status().Patch(ctx, l, client.MergeFrom(base))
+	return r.Status().Patch(ctx, l, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 // patchPolicyStatus writes the status only when it changed.

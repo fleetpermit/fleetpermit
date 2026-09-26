@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,23 +63,29 @@ const (
 	feedbackDigestPath   = `.metadata.annotations.fleetpermit\.github\.io/content-digest`
 	// LabelResync is changed to make the OCM work agent re-apply a work
 	// immediately; OCM re-queues a ManifestWork when its labels change.
-	LabelResync           = "fleetpermit.github.io/resync"
-	resyncBackoff         = 10 * time.Second
-	reasonDrifted         = "Drifted"
-	reasonEnforced        = "Enforced"
-	reasonApplying        = "Applying"
-	reasonApplyFailed     = "ApplyFailed"
-	reasonAwaitingAccept  = "AwaitingAcceptance"
-	reasonRejected        = "RejectedByEnforcement"
-	reasonClusterNotReady = "ClusterUnavailable"
-	reasonSuperseded      = "Superseded"
+	LabelResync   = "fleetpermit.github.io/resync"
+	resyncBackoff = 10 * time.Second
+)
+
+// Reasons reported in placement.ClusterState.
+const (
+	ReasonDrifted            = "Drifted"
+	ReasonEnforced           = "Enforced"
+	ReasonApplying           = "Applying"
+	ReasonApplyFailed        = "ApplyFailed"
+	ReasonAwaitingAcceptance = "AwaitingAcceptance"
+	ReasonRejected           = "RejectedByEnforcement"
+	ReasonClusterUnavailable = "ClusterUnavailable"
+	ReasonSuperseded         = "Superseded"
+	ReasonDeleting           = "Deleting"
 )
 
 // Provider delivers FleetPermit content through Open Cluster Management.
 type Provider struct {
 	Client client.Client
-	// Executor, when set, makes the OCM work agent apply content as this
-	// managed-cluster ServiceAccount instead of its own identity.
+	// Executor, when set, makes the OCM work agent check each delivered
+	// object against this managed-cluster ServiceAccount's permissions before
+	// applying it; the agent still writes with its own identity.
 	Executor *workv1.ManifestWorkExecutor
 	// Now returns the current time; defaults to time.Now.
 	Now func() time.Time
@@ -122,6 +129,11 @@ func (o *Provider) SelectedClusters(ctx context.Context, p *fpv1.FleetAccessPoli
 	seen := map[string]bool{}
 	var clusters []string
 	for _, d := range decisions.Items {
+		// OCM makes the Placement the controller of the decisions it writes;
+		// the label alone can be set by anyone who may create decisions.
+		if !metav1.IsControlledBy(&d, &pl) {
+			continue
+		}
 		for _, dec := range d.Status.Decisions {
 			if dec.ClusterName != "" && !seen[dec.ClusterName] {
 				seen[dec.ClusterName] = true
@@ -160,12 +172,13 @@ func (o *Provider) Apply(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster
 		return fmt.Errorf("ManifestWork %s/%s exists and is not owned by this policy (owner policy UID %q); refusing to overwrite it", cluster, desired.Name, owner)
 	}
 	if !current.DeletionTimestamp.IsZero() {
-		return fmt.Errorf("ManifestWork %s/%s is still being deleted; retrying", cluster, desired.Name)
+		return fmt.Errorf("ManifestWork %s/%s: %w; it is created again once the deletion completes", cluster, desired.Name, placement.ErrStillDeleting)
 	}
 	if current.Annotations[AnnotationDigest] == res.Digest &&
 		current.Labels[LabelPolicyUID] == string(p.UID) &&
 		current.Annotations[AnnotationWorkDigest] == desired.Annotations[AnnotationWorkDigest] &&
-		sameManifests(current.Spec.Workload.Manifests, desired.Spec.Workload.Manifests) {
+		sameManifests(current.Spec.Workload.Manifests, desired.Spec.Workload.Manifests) &&
+		sameSpec(desired.Spec, current.Spec) {
 		// Content is current on the hub. If the managed cluster reports that
 		// the delivered object is missing or differs, ask the work agent to
 		// re-apply now instead of waiting for its periodic resync.
@@ -220,19 +233,49 @@ func (o *Provider) deleteOwned(ctx context.Context, p *fpv1.FleetAccessPolicy, c
 		if w.Name == keep || !w.DeletionTimestamp.IsZero() {
 			continue
 		}
-		uid := w.UID
-		err := o.Client.Delete(ctx, w, client.Preconditions{UID: &uid})
-		if err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
-			return fmt.Errorf("deleting ManifestWork %s/%s: %w", cluster, w.Name, err)
+		if err := o.deleteWork(ctx, w); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
+// Withdraw deletes the ManifestWorks, on every cluster, that were delivered
+// for the policy with this namespace and name, which no longer exists. Its
+// UID is unknown, so the works are found by their policy annotation.
+func (o *Provider) Withdraw(ctx context.Context, policy types.NamespacedName) error {
+	var works workv1.ManifestWorkList
+	if err := o.Client.List(ctx, &works, client.MatchingLabels{LabelManagedBy: ManagedByValue}); err != nil {
+		return fmt.Errorf("listing ManifestWorks: %w", err)
+	}
+	for i := range works.Items {
+		w := &works.Items[i]
+		if w.Annotations[AnnotationPolicy] != policy.String() || !w.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if err := o.deleteWork(ctx, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteWork deletes w on condition that its UID is still the listed one, so
+// an object that reuses the name is never deleted.
+func (o *Provider) deleteWork(ctx context.Context, w *workv1.ManifestWork) error {
+	uid := w.UID
+	err := o.Client.Delete(ctx, w, client.Preconditions{UID: &uid})
+	if err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
+		return fmt.Errorf("deleting ManifestWork %s/%s: %w", w.Namespace, w.Name, err)
+	}
+	return nil
+}
+
 // Observe reports, per cluster, the state of the ManifestWork that belongs to
-// the policy. A cluster that only holds a delivery under an earlier name is
-// reported as not ready, so the controller replaces it on placed clusters and
-// removes it from all others.
+// the policy. A cluster that only holds a delivery under an earlier name, or
+// one that is still being deleted, is reported as not ready: the controller
+// replaces it on placed clusters and removes it from all others, and the
+// cluster counts as withdrawn only once the work is gone.
 func (o *Provider) Observe(ctx context.Context, p *fpv1.FleetAccessPolicy) (map[string]placement.ClusterState, error) {
 	var works workv1.ManifestWorkList
 	if err := o.Client.List(ctx, &works, client.MatchingLabels{LabelPolicyUID: string(p.UID)}); err != nil {
@@ -243,11 +286,15 @@ func (o *Provider) Observe(ctx context.Context, p *fpv1.FleetAccessPolicy) (map[
 	for i := range works.Items {
 		w := &works.Items[i]
 		if !w.DeletionTimestamp.IsZero() {
+			if _, seen := out[w.Namespace]; !seen {
+				out[w.Namespace] = placement.ClusterState{Cluster: w.Namespace, Reason: ReasonDeleting,
+					Message: "ManifestWork " + w.Name + " is being deleted; withdrawal from the cluster is in progress"}
+			}
 			continue
 		}
 		if w.Name != name {
 			if _, seen := out[w.Namespace]; !seen {
-				out[w.Namespace] = placement.ClusterState{Cluster: w.Namespace, Reason: reasonSuperseded,
+				out[w.Namespace] = placement.ClusterState{Cluster: w.Namespace, Reason: ReasonSuperseded,
 					Message: "ManifestWork " + w.Name + " uses an earlier name and is being replaced"}
 			}
 			continue
@@ -257,7 +304,7 @@ func (o *Provider) Observe(ctx context.Context, p *fpv1.FleetAccessPolicy) (map[
 		if err := o.Client.Get(ctx, types.NamespacedName{Name: w.Namespace}, &mc); err == nil {
 			if !meta.IsStatusConditionTrue(mc.Status.Conditions, clusterv1.ManagedClusterConditionAvailable) {
 				st.Ready = false
-				st.Reason = reasonClusterNotReady
+				st.Reason = ReasonClusterUnavailable
 				st.Message = "managed cluster is not reporting as available; delivered status may be stale"
 			}
 		}
@@ -295,45 +342,57 @@ func Drift(w *workv1.ManifestWork) string {
 	return ""
 }
 
-// WorkState derives a cluster state from ManifestWork status.
+// WorkState derives a cluster state from ManifestWork status. The cluster is
+// ready only when the enforcement layer accepted every delivered object and
+// each object reports the content digest the hub delivered.
 func WorkState(w *workv1.ManifestWork) placement.ClusterState {
-	st := placement.ClusterState{Cluster: w.Namespace, Digest: w.Annotations[AnnotationDigest]}
+	want := w.Annotations[AnnotationDigest]
+	st := placement.ClusterState{Cluster: w.Namespace, Digest: want}
 	applied := meta.FindStatusCondition(w.Status.Conditions, workv1.WorkApplied)
 	switch {
 	case applied == nil || applied.ObservedGeneration != w.Generation:
-		st.Reason, st.Message = reasonApplying, "waiting for the work agent to apply the current generation"
+		st.Reason, st.Message = ReasonApplying, "waiting for the work agent to apply the current generation"
 		return st
 	case applied.Status != metav1.ConditionTrue:
-		st.Reason, st.Message = reasonApplyFailed, applied.Message
+		st.Reason, st.Message = ReasonApplyFailed, applied.Message
 		return st
 	}
 	if d := Drift(w); d != "" {
-		st.Reason, st.Message = reasonDrifted, d
+		st.Reason, st.Message = ReasonDrifted, d
 		return st
 	}
 	manifests := w.Status.ResourceStatus.Manifests
 	if len(manifests) < len(w.Spec.Workload.Manifests) {
-		st.Reason, st.Message = reasonAwaitingAccept, "waiting for per-resource status"
+		st.Reason, st.Message = ReasonAwaitingAcceptance, "waiting for per-resource status"
 		return st
 	}
 	for _, m := range manifests {
-		accepted := ""
+		accepted, digest := "", ""
 		for _, v := range m.StatusFeedbacks.Values {
-			if v.Name == FeedbackAccepted && v.Value.String != nil {
+			if v.Value.String == nil {
+				continue
+			}
+			switch v.Name {
+			case FeedbackAccepted:
 				accepted = *v.Value.String
+			case FeedbackDigest:
+				digest = *v.Value.String
 			}
 		}
-		switch accepted {
-		case "True":
-		case "":
-			st.Reason, st.Message = reasonAwaitingAccept, fmt.Sprintf("%s %s has not been accepted by the enforcement controller yet", m.ResourceMeta.Kind, m.ResourceMeta.Name)
+		switch {
+		case accepted == "":
+			st.Reason, st.Message = ReasonAwaitingAcceptance, fmt.Sprintf("%s %s has not been accepted by the enforcement controller yet", m.ResourceMeta.Kind, m.ResourceMeta.Name)
 			return st
-		default:
-			st.Reason, st.Message = reasonRejected, fmt.Sprintf("%s %s was not accepted by the enforcement controller", m.ResourceMeta.Kind, m.ResourceMeta.Name)
+		case accepted != "True":
+			st.Reason, st.Message = ReasonRejected, fmt.Sprintf("%s %s was not accepted by the enforcement controller", m.ResourceMeta.Kind, m.ResourceMeta.Name)
+			return st
+		case digest != want:
+			// A differing digest is reported as drift above, so it is missing.
+			st.Reason, st.Message = ReasonAwaitingAcceptance, fmt.Sprintf("%s %s has not reported its content digest yet", m.ResourceMeta.Kind, m.ResourceMeta.Name)
 			return st
 		}
 	}
-	st.Ready, st.Reason, st.Message = true, reasonEnforced, "content applied and accepted"
+	st.Ready, st.Reason, st.Message = true, ReasonEnforced, "content applied and accepted"
 	return st
 }
 
@@ -389,6 +448,15 @@ func (o *Provider) desiredWork(p *fpv1.FleetAccessPolicy, cluster string, res en
 	}
 	w.Annotations[AnnotationWorkDigest] = d
 	return w, nil
+}
+
+// sameSpec reports whether current holds every spec field FleetPermit sets,
+// with the same value, and the same executor. Fields FleetPermit leaves unset
+// may carry server defaults; the manifests are compared by sameManifests.
+func sameSpec(desired, current workv1.ManifestWorkSpec) bool {
+	desired.Workload, current.Workload = workv1.ManifestsTemplate{}, workv1.ManifestsTemplate{}
+	return equality.Semantic.DeepDerivative(desired, current) &&
+		equality.Semantic.DeepEqual(desired.Executor, current.Executor)
 }
 
 func sameManifests(a, b []workv1.Manifest) bool {

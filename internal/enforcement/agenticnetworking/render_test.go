@@ -18,6 +18,7 @@ package agenticnetworking
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -101,12 +102,12 @@ func TestRenderLeaseGrant(t *testing.T) {
 		t.Fatalf("namespace = %q", u.GetNamespace())
 	}
 	ann := u.GetAnnotations()
-	for _, k := range []string{AnnotationPolicy, AnnotationPolicyUID, AnnotationGeneration, AnnotationCluster, AnnotationLeases, AnnotationDigest, AnnotationExpiresAt} {
+	for _, k := range []string{AnnotationPolicy, AnnotationPolicyUID, AnnotationCluster, AnnotationLeases, AnnotationDigest, AnnotationExpiresAt} {
 		if ann[k] == "" {
 			t.Errorf("annotation %s missing", k)
 		}
 	}
-	if ann[AnnotationDigest] != res.Digest || ann[AnnotationExpiresAt] != "2026-09-26T10:15:00Z" || ann[AnnotationGeneration] != "3" {
+	if ann[AnnotationDigest] != res.Digest || ann[AnnotationExpiresAt] != "2026-09-26T10:15:00Z" {
 		t.Errorf("unexpected annotations %v", ann)
 	}
 	if u.GetLabels()[LabelManagedBy] != ManagedByValue {
@@ -222,6 +223,29 @@ func TestRenderDigestIsStableAndBound(t *testing.T) {
 	e, _ := Renderer{}.Render(enforcement.Request{Policy: p, Cluster: "cluster-east", Grants: []enforcement.Grant{grant("a", sre, "restart_workload")}})
 	if e.Digest != a.Digest {
 		t.Fatal("digest should depend on content, not on the policy generation")
+	}
+}
+
+// TestRenderedObjectDoesNotDependOnPolicyGeneration checks that a policy edit
+// that leaves a cluster's grants unchanged does not change what is delivered
+// there, so it does not trigger a new rollout.
+func TestRenderedObjectDoesNotDependOnPolicyGeneration(t *testing.T) {
+	grants := []enforcement.Grant{grant("a", sre, "restart_workload")}
+	a, err := Renderer{}.Render(enforcement.Request{Policy: testPolicy(), Cluster: "cluster-east", Grants: grants})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := testPolicy()
+	p.Generation = 99
+	b, err := Renderer{}.Render(enforcement.Request{Policy: p, Cluster: "cluster-east", Grants: grants})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(a.Objects, b.Objects) {
+		t.Fatalf("rendered object changed with the policy generation:\n%v\n%v", a.Objects[0].GetAnnotations(), b.Objects[0].GetAnnotations())
+	}
+	if _, ok := b.Objects[0].GetAnnotations()["fleetpermit.github.io/policy-generation"]; ok {
+		t.Fatal("the rendered object must not carry the policy generation")
 	}
 }
 

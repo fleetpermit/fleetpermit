@@ -142,13 +142,16 @@ var latencyLabels = map[string]string{
 	"driftRecoveryMs":           "Rendered policy deleted on a cluster → object restored",
 	"driftRecoveryToAllowMs":    "Rendered policy deleted on a cluster → calls allowed again",
 	"reconnectConvergenceMs":    "Hub reconnected → stale grants withdrawn",
-	"probeRoundTripMs":          "Probe round trip (measurement baseline)",
+	"probeRoundTripMs":          "Host-to-pod probe round trip (measurement baseline)",
 }
 
 func latencies(e2e, bench map[string]any) map[string]*latency {
 	samples := map[string][]int64{}
 	sources := map[string]map[string]bool{}
 	add := func(metric, source string, v float64) {
+		if v < 0 {
+			return // -1 records a measurement that timed out
+		}
 		samples[metric] = append(samples[metric], int64(math.Round(v)))
 		if sources[metric] == nil {
 			sources[metric] = map[string]bool{}
@@ -265,8 +268,11 @@ func readProfile(path string, into map[string]block) bool {
 			continue
 		}
 		i := strings.LastIndex(line, " ")
+		if i < 0 {
+			continue
+		}
 		j := strings.LastIndex(line[:i], " ")
-		if i < 0 || j < 0 {
+		if j < 0 {
 			continue
 		}
 		key := line[:j]
@@ -582,7 +588,7 @@ func updateReadme(path string, out map[string]any) error {
 		env, _ := e2e["environment"].(map[string]any)
 		fmt.Fprintf(&r, "Real multi-cluster run (%s hub + %s managed kind clusters, Kubernetes %s, OCM %s, kube-agentic-networking %s, %s/%s, %s):\n\n",
 			str(env["hub"]), str(env["managedClusters"]), str(env["kubernetes"]), str(env["openClusterManagement"]),
-			str(env["kubeAgenticNetworking"]), str(env["os"]), str(env["arch"]), str(e2e["finishedAt"])[:10])
+			str(env["kubeAgenticNetworking"]), str(env["os"]), str(env["arch"]), day(e2e["finishedAt"]))
 		fmt.Fprintf(&r, "- **%s of %s scenarios passed**, %s failed, %s not supported by the upstream API (argument-level matching).\n",
 			str(sum["passed"]), str(sum["total"]), str(sum["failed"]), str(sum["unsupported"]))
 		if reps, ok := out["reproductions"].([]map[string]any); ok {
@@ -690,6 +696,15 @@ func str(v any) string {
 }
 
 func num(v any) float64 { f, _ := v.(float64); return f }
+
+// day returns the date part of an RFC 3339 timestamp, or the value as is.
+func day(v any) string {
+	s := str(v)
+	if len(s) < 10 {
+		return s
+	}
+	return s[:10]
+}
 
 func esc(s string) string { return strings.ReplaceAll(strings.ReplaceAll(s, "|", "\\|"), "\n", " ") }
 

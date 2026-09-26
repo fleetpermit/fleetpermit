@@ -143,14 +143,21 @@ func (c *fakeClock) Set(t time.Time) {
 	c.t = t
 }
 
-// startController runs the FleetPermit reconciler in-process and returns a
-// stop function.
+// startController runs the FleetPermit reconciler in-process, with the
+// production cache settings, and returns a stop function.
 func startController(t testing.TB, clock func() time.Time) func() {
+	t.Helper()
+	return startControllerIn(t, clock, "")
+}
+
+// startControllerIn is startController with --watch-namespace set.
+func startControllerIn(t testing.TB, clock func() time.Time, watchNamespace string) func() {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:     scheme,
 		Metrics:    metricsserver.Options{BindAddress: "0"},
 		Controller: ctrlConfig(),
+		Cache:      controller.CacheOptions(watchNamespace),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -160,10 +167,12 @@ func startController(t testing.TB, clock func() time.Time) func() {
 		t.Fatal(err)
 	}
 	r := &controller.PolicyReconciler{
-		Client:    mgr.GetClient(),
-		Placement: &ocm.Provider{Client: mgr.GetClient()},
-		Renderer:  agenticnetworking.Renderer{},
-		Now:       clock,
+		Client:         mgr.GetClient(),
+		APIReader:      mgr.GetAPIReader(),
+		Placement:      &ocm.Provider{Client: mgr.GetClient()},
+		Renderer:       agenticnetworking.Renderer{},
+		WatchNamespace: watchNamespace,
+		Now:            clock,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		t.Fatal(err)

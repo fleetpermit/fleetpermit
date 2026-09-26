@@ -137,7 +137,9 @@ func TestScaleSimulation(t *testing.T) {
 			"description": "envtest kube-apiserver + etcd on one host; simulated OCM work agent; no real managed clusters",
 			"goos":        runtime.GOOS, "goarch": runtime.GOARCH, "cpus": runtime.NumCPU(),
 			"pollIntervalMs": pollInterval.Milliseconds(),
-			"note":           "activation = lease created until every cluster's ManifestWork carries the grant; ready = until the lease reports Ready after simulated acknowledgement; revocation = lease deleted until no ManifestWork carries it",
+			"note": "Activation is the time from lease creation until every cluster's ManifestWork carries the grant. " +
+				"Ready is the time until the lease reports Ready after simulated acknowledgement. " +
+				"Revocation is the time from lease deletion until no ManifestWork carries the grant.",
 		},
 		"rows": rows,
 	}

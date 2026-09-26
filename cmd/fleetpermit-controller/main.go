@@ -33,7 +33,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -41,8 +40,6 @@ import (
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 	workv1 "open-cluster-management.io/api/work/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -70,7 +67,7 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address for the liveness and readiness probes.")
 	flag.BoolVar(&leaderElect, "leader-elect", true, "Enable leader election so only one replica reconciles at a time.")
 	flag.StringVar(&leaderElectNS, "leader-election-namespace", "", "Namespace for the leader election Lease. Defaults to the pod namespace.")
-	flag.StringVar(&executorSA, "work-executor", "", "Optional namespace/name of a ServiceAccount on managed clusters that the OCM work agent applies grants as.")
+	flag.StringVar(&executorSA, "work-executor", "", "Optional namespace/name of a managed-cluster ServiceAccount whose permissions the OCM work agent checks before applying FleetPermit's grants.")
 	flag.StringVar(&watchNamespace, "watch-namespace", "", "Restrict FleetPermit objects to one namespace. Empty watches all namespaces.")
 	flag.BoolVar(&showVersion, "version", false, "Print the version and exit.")
 	opts := zap.Options{Development: false}
@@ -89,6 +86,11 @@ func main() {
 		log.Error(err, "tracing disabled")
 	}
 	defer shutdownTracing()
+	// os.Exit skips deferred calls: exit through this to flush spans first.
+	exit := func(code int) {
+		shutdownTracing()
+		os.Exit(code)
+	}
 
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -102,25 +104,12 @@ func main() {
 		ns, name, ok := strings.Cut(executorSA, "/")
 		if !ok || ns == "" || name == "" {
 			log.Error(nil, "--work-executor must be namespace/name", "value", executorSA)
-			os.Exit(2)
+			exit(2)
 		}
 		executor = &workv1.ManifestWorkExecutor{Subject: workv1.ManifestWorkExecutorSubject{
 			Type:           workv1.ExecutorSubjectTypeServiceAccount,
 			ServiceAccount: &workv1.ManifestWorkSubjectServiceAccount{Namespace: ns, Name: name},
 		}}
-	}
-
-	// Only FleetPermit's own ManifestWorks are cached, never the rest of the hub's.
-	byObject := map[client.Object]cache.ByObject{
-		&workv1.ManifestWork{}: {Label: labels.SelectorFromSet(labels.Set{ocm.LabelManagedBy: ocm.ManagedByValue})},
-	}
-	cacheOpts := cache.Options{ByObject: byObject}
-	if watchNamespace != "" {
-		ns := map[string]cache.Config{watchNamespace: {}}
-		byObject[&fpv1.FleetAccessPolicy{}] = cache.ByObject{Namespaces: ns}
-		byObject[&fpv1.ToolAccessLease{}] = cache.ByObject{Namespaces: ns}
-		byObject[&clusterv1beta1.Placement{}] = cache.ByObject{Namespaces: ns}
-		byObject[&clusterv1beta1.PlacementDecision{}] = cache.ByObject{Namespaces: ns}
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -134,41 +123,43 @@ func main() {
 		// restart) takes over at once instead of waiting for the lease to
 		// expire. Safe because the process exits as soon as the manager stops.
 		LeaderElectionReleaseOnCancel: true,
-		Cache:                         cacheOpts,
+		Cache:                         controller.CacheOptions(watchNamespace),
 	})
 	if err != nil {
 		log.Error(err, "unable to create manager")
-		os.Exit(1)
+		exit(1)
 	}
 
 	ctx := ctrl.SetupSignalHandler()
 	if err := controller.IndexLeases(ctx, mgr); err != nil {
 		log.Error(err, "unable to index leases")
-		os.Exit(1)
+		exit(1)
 	}
 	r := &controller.PolicyReconciler{
-		Client:    mgr.GetClient(),
-		Placement: &ocm.Provider{Client: mgr.GetClient(), Executor: executor},
-		Renderer:  agenticnetworking.Renderer{},
-		Now:       time.Now,
+		Client:         mgr.GetClient(),
+		APIReader:      mgr.GetAPIReader(),
+		Placement:      &ocm.Provider{Client: mgr.GetClient(), Executor: executor},
+		Renderer:       agenticnetworking.Renderer{},
+		WatchNamespace: watchNamespace,
+		Now:            time.Now,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "unable to set up controller")
-		os.Exit(1)
+		exit(1)
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		log.Error(err, "unable to add health check")
-		os.Exit(1)
+		exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		log.Error(err, "unable to add ready check")
-		os.Exit(1)
+		exit(1)
 	}
 
 	log.Info("starting fleetpermit-controller", "version", version)
 	if err := mgr.Start(ctx); err != nil {
 		log.Error(err, "manager exited with an error")
-		os.Exit(1)
+		exit(1)
 	}
 }
 
@@ -179,12 +170,15 @@ func setupTracing(ctx context.Context) (func(), error) {
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" && os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "" {
 		return noop, nil
 	}
-	exp, err := otlptracehttp.New(ctx)
+	// The service attributes are schemaless: resource.Default() carries the
+	// SDK's semantic-convention schema, and merging two different schema URLs
+	// fails. Building the resource first leaves nothing to clean up on error.
+	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(
+		semconv.ServiceName("fleetpermit-controller"), semconv.ServiceVersion(version)))
 	if err != nil {
 		return noop, err
 	}
-	res, err := resource.Merge(resource.Default(), resource.NewWithAttributes(semconv.SchemaURL,
-		semconv.ServiceName("fleetpermit-controller"), semconv.ServiceVersion(version)))
+	exp, err := otlptracehttp.New(ctx)
 	if err != nil {
 		return noop, err
 	}

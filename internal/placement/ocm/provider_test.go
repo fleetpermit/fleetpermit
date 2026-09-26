@@ -18,17 +18,20 @@ package ocm
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
+	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 	workv1 "open-cluster-management.io/api/work/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -47,10 +50,22 @@ func work(gen int64, applied *metav1.ConditionStatus, appliedGen int64, feedback
 	for _, f := range feedback {
 		m := workv1.ManifestCondition{ResourceMeta: workv1.ManifestResourceMeta{Kind: "XAccessPolicy", Name: "p"}}
 		if f != "" {
-			v := f
-			m.StatusFeedbacks.Values = []workv1.FeedbackValue{{Name: FeedbackAccepted, Value: workv1.FieldValue{Type: workv1.String, String: &v}}}
+			v, d := f, "sha256:abc"
+			m.StatusFeedbacks.Values = []workv1.FeedbackValue{
+				{Name: FeedbackAccepted, Value: workv1.FieldValue{Type: workv1.String, String: &v}},
+				{Name: FeedbackDigest, Value: workv1.FieldValue{Type: workv1.String, String: &d}},
+			}
 		}
 		w.Status.ResourceStatus.Manifests = append(w.Status.ResourceStatus.Manifests, m)
+	}
+	return w
+}
+
+// withoutDigest drops the content digest feedback from every manifest.
+func withoutDigest(w *workv1.ManifestWork) *workv1.ManifestWork {
+	for i := range w.Status.ResourceStatus.Manifests {
+		values := w.Status.ResourceStatus.Manifests[i].StatusFeedbacks.Values
+		w.Status.ResourceStatus.Manifests[i].StatusFeedbacks.Values = slices.DeleteFunc(values, func(v workv1.FeedbackValue) bool { return v.Name == FeedbackDigest })
 	}
 	return w
 }
@@ -63,13 +78,14 @@ func TestWorkState(t *testing.T) {
 		ready  bool
 		reason string
 	}{
-		{"not applied yet", work(1, nil, 0), false, reasonApplying},
-		{"stale generation", work(2, &yes, 1, "True"), false, reasonApplying},
-		{"apply failed", work(1, &no, 1), false, reasonApplyFailed},
-		{"no per-resource status", work(1, &yes, 1), false, reasonAwaitingAccept},
-		{"no feedback yet", work(1, &yes, 1, ""), false, reasonAwaitingAccept},
-		{"rejected by enforcement", work(1, &yes, 1, "False"), false, reasonRejected},
-		{"enforced", work(1, &yes, 1, "True"), true, reasonEnforced},
+		{"not applied yet", work(1, nil, 0), false, ReasonApplying},
+		{"stale generation", work(2, &yes, 1, "True"), false, ReasonApplying},
+		{"apply failed", work(1, &no, 1), false, ReasonApplyFailed},
+		{"no per-resource status", work(1, &yes, 1), false, ReasonAwaitingAcceptance},
+		{"no feedback yet", work(1, &yes, 1, ""), false, ReasonAwaitingAcceptance},
+		{"rejected by enforcement", work(1, &yes, 1, "False"), false, ReasonRejected},
+		{"accepted but no digest reported", withoutDigest(work(1, &yes, 1, "True")), false, ReasonAwaitingAcceptance},
+		{"enforced", work(1, &yes, 1, "True"), true, ReasonEnforced},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -143,7 +159,7 @@ func TestDriftDetection(t *testing.T) {
 	}
 	missing := w.DeepCopy()
 	missing.Status.Conditions = append(missing.Status.Conditions, metav1.Condition{Type: workv1.WorkAvailable, Status: no, ObservedGeneration: 1})
-	if Drift(missing) == "" || WorkState(missing).Reason != reasonDrifted {
+	if Drift(missing) == "" || WorkState(missing).Reason != ReasonDrifted {
 		t.Fatal("a missing delivered object must be reported as drift")
 	}
 	edited := w.DeepCopy()
@@ -195,6 +211,9 @@ func fakeProvider(t *testing.T, objs ...client.Object) (*Provider, client.Client
 		t.Fatal(err)
 	}
 	if err := clusterv1.Install(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := clusterv1beta1.Install(scheme); err != nil {
 		t.Fatal(err)
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
@@ -257,7 +276,124 @@ func TestObserveReportsDeliveriesUnderAnEarlierName(t *testing.T) {
 	if got["cluster-east"].Digest != "sha256:new" {
 		t.Fatalf("cluster-east must report the current work, got %+v", got["cluster-east"])
 	}
-	if w := got["cluster-west"]; w.Ready || w.Reason != reasonSuperseded {
+	if w := got["cluster-west"]; w.Ready || w.Reason != ReasonSuperseded {
 		t.Fatalf("cluster-west holds only an earlier-named work and must be reported superseded, got %+v", w)
+	}
+}
+
+func TestSelectedClustersTrustsOnlyDecisionsOfThePlacement(t *testing.T) {
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-a"}}
+	p.Spec.Placement.PlacementRef.Name = "production"
+	pl := &clusterv1beta1.Placement{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "production", UID: "placement-1"}}
+	other := &clusterv1beta1.Placement{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "other", UID: "placement-2"}}
+	decision := func(name string, owner *clusterv1beta1.Placement, clusters ...string) *clusterv1beta1.PlacementDecision {
+		d := &clusterv1beta1.PlacementDecision{ObjectMeta: metav1.ObjectMeta{
+			Namespace: "team-a", Name: name, Labels: map[string]string{clusterv1beta1.PlacementLabel: "production"},
+		}}
+		if owner != nil {
+			d.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(owner, clusterv1beta1.SchemeGroupVersion.WithKind("Placement"))}
+		}
+		for _, c := range clusters {
+			d.Status.Decisions = append(d.Status.Decisions, clusterv1beta1.ClusterDecision{ClusterName: c})
+		}
+		return d
+	}
+	o, _ := fakeProvider(t, pl, other,
+		decision("production-decision-1", pl, "cluster-east", "cluster-west"),
+		decision("forged-without-owner", nil, "cluster-rogue"),
+		decision("forged-with-another-owner", other, "cluster-foreign"),
+	)
+	got, err := o.SelectedClusters(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "cluster-east,cluster-west" {
+		t.Fatalf("selected %v; decisions not controlled by the Placement must be ignored", got)
+	}
+}
+
+func TestApplyRestoresTamperedWorkSpec(t *testing.T) {
+	ctx := context.Background()
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-a"}}
+	obj := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]any{"name": "x", "namespace": "n"}}}
+	res := enforcement.Result{Objects: []*unstructured.Unstructured{obj}, Digest: "sha256:1",
+		Resources: []enforcement.Resource{{Resource: "configmaps", Namespace: "n", Name: "x"}}}
+	o, c := fakeProvider(t)
+	if err := o.Apply(ctx, p, "cluster-east", res); err != nil {
+		t.Fatal(err)
+	}
+	key := types.NamespacedName{Namespace: "cluster-east", Name: WorkName(p)}
+	cases := map[string]func(*workv1.ManifestWork){
+		"orphaning delete option": func(w *workv1.ManifestWork) {
+			w.Spec.DeleteOption = &workv1.DeleteOption{PropagationPolicy: workv1.DeletePropagationPolicyTypeOrphan}
+		},
+		"create-only update strategy": func(w *workv1.ManifestWork) {
+			w.Spec.ManifestConfigs[0].UpdateStrategy = &workv1.UpdateStrategy{Type: workv1.UpdateStrategyTypeCreateOnly}
+		},
+		"added executor": func(w *workv1.ManifestWork) {
+			w.Spec.Executor = &workv1.ManifestWorkExecutor{Subject: workv1.ManifestWorkExecutorSubject{
+				Type: workv1.ExecutorSubjectTypeServiceAccount, ServiceAccount: &workv1.ManifestWorkSubjectServiceAccount{Namespace: "kube-system", Name: "powerful"},
+			}}
+		},
+	}
+	for name, tamper := range cases {
+		t.Run(name, func(t *testing.T) {
+			var w workv1.ManifestWork
+			if err := c.Get(ctx, key, &w); err != nil {
+				t.Fatal(err)
+			}
+			want := w.Spec.DeepCopy()
+			tamper(&w)
+			if err := c.Update(ctx, &w); err != nil {
+				t.Fatal(err)
+			}
+			if err := o.Apply(ctx, p, "cluster-east", res); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Get(ctx, key, &w); err != nil {
+				t.Fatal(err)
+			}
+			if !equality.Semantic.DeepEqual(&w.Spec, want) {
+				t.Fatalf("spec not restored:\n got %+v\nwant %+v", w.Spec, *want)
+			}
+		})
+	}
+}
+
+func TestObserveReportsWorksBeingDeleted(t *testing.T) {
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-a"}}
+	deleting := ownedWork("cluster-west", WorkName(p), "policy-a")
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	deleting.Finalizers = []string{workv1.ManifestWorkFinalizer}
+	o, _ := fakeProvider(t, deleting)
+	got, err := o.Observe(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, found := got["cluster-west"]
+	if !found || st.Ready || st.Reason != ReasonDeleting {
+		t.Fatalf("a work that is still being deleted must be reported as present and not ready, got %+v (found %v)", st, found)
+	}
+}
+
+func TestWithdrawDeletesOnlyTheMissingPolicysWorks(t *testing.T) {
+	annotated := func(cluster, name, owner, policy string) *workv1.ManifestWork {
+		w := ownedWork(cluster, name, owner)
+		w.Annotations = map[string]string{AnnotationPolicy: policy}
+		return w
+	}
+	o, c := fakeProvider(t,
+		annotated("cluster-east", "fleetpermit-sre-1", "policy-a", "team-a/sre"),
+		annotated("cluster-west", "fleetpermit-sre-1", "policy-a", "team-a/sre"),
+		annotated("cluster-east", "fleetpermit-other-1", "policy-b", "team-a/other"),
+		annotated("cluster-east", "fleetpermit-sre-2", "policy-c", "team-b/sre"),
+	)
+	if err := o.Withdraw(context.Background(), types.NamespacedName{Namespace: "team-a", Name: "sre"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"cluster-east/fleetpermit-other-1", "cluster-east/fleetpermit-sre-2"}
+	if got := workNames(t, c); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("remaining works:\n got %v\nwant %v", got, want)
 	}
 }

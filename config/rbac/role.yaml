@@ -26,12 +26,6 @@ rules:
 - apiGroups:
   - fleetpermit.github.io
   resources:
-  - fleetaccesspolicies/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - fleetpermit.github.io
-  resources:
   - fleetaccesspolicies/status
   - toolaccessleases/status
   verbs:

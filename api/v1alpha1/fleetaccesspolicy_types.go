@@ -44,8 +44,11 @@ const (
 const FailModeClosed = "Closed"
 
 // FleetAccessPolicySpec is the maximum authority that leases may activate.
+// +kubebuilder:validation:XValidation:rule="!has(self.lease) || !has(self.lease.required) || self.lease.required || size(self.subjects) <= 5",message="a policy with lease.required=false may list at most 5 subjects: each needs two of the enforcement layer's 10 rules"
 type FleetAccessPolicySpec struct {
-	// Subjects lists the workload identities this policy may grant to.
+	// Subjects lists the workload identities this policy may grant to. A
+	// policy with lease.required=false may list at most 5: each standing
+	// subject needs two of the enforcement layer's 10 rules per policy.
 	// +required
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
@@ -115,6 +118,7 @@ type TargetSpec struct {
 }
 
 // TargetRef references a Gateway or an XBackend on the managed cluster.
+// +kubebuilder:validation:XValidation:rule="!has(self.group) || !has(self.kind) || (self.group == 'agentic.networking.x-k8s.io' && self.kind == 'XBackend') || (self.group == 'gateway.networking.k8s.io' && self.kind == 'Gateway')",message="target.ref must be kind XBackend in group agentic.networking.x-k8s.io or kind Gateway in group gateway.networking.k8s.io"
 type TargetRef struct {
 	// Group of the target resource.
 	// +optional
@@ -228,7 +232,10 @@ type FleetAccessPolicyStatus struct {
 	// +optional
 	ActiveLeases int32 `json:"activeLeases,omitempty"`
 
-	// Clusters holds per-cluster detail, sorted by name.
+	// Clusters holds per-cluster detail, sorted by name: the selected
+	// clusters and those still being withdrawn from. It lists at most 512
+	// clusters; beyond that, clusters that are not ready are listed first,
+	// and the counts above stay exact.
 	// +optional
 	// +listType=map
 	// +listMapKey=name

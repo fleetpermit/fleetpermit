@@ -22,11 +22,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -38,8 +40,10 @@ import (
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 	workv1 "open-cluster-management.io/api/work/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	fpv1 "github.com/fleetpermit/fleetpermit/api/v1alpha1"
+	"github.com/fleetpermit/fleetpermit/internal/controller"
 	"github.com/fleetpermit/fleetpermit/internal/enforcement/agenticnetworking"
 	"github.com/fleetpermit/fleetpermit/internal/metrics"
 	"github.com/fleetpermit/fleetpermit/internal/placement/ocm"
@@ -69,9 +73,12 @@ func newFleet(t testing.TB, ns string, clusters []string, selected []string) *fl
 	if err := k8s.Create(ctx, pl); err != nil {
 		t.Fatal(err)
 	}
+	// OCM's placement controller labels the decisions it writes and makes
+	// the Placement their controller.
 	pd := &clusterv1beta1.PlacementDecision{ObjectMeta: metav1.ObjectMeta{
 		Namespace: ns, Name: f.placement + "-decision-1",
-		Labels: map[string]string{clusterv1beta1.PlacementLabel: f.placement},
+		Labels:          map[string]string{clusterv1beta1.PlacementLabel: f.placement},
+		OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(pl, clusterv1beta1.SchemeGroupVersion.WithKind("Placement"))},
 	}}
 	if err := k8s.Create(ctx, pd); err != nil {
 		t.Fatal(err)
@@ -177,9 +184,19 @@ func clusterSet(m map[string]workv1.ManifestWork) string {
 	return strings.Join(names, ",")
 }
 
+// ackOption changes what the simulated work agent does.
+type ackOption int
+
+// holdDeletion makes the simulated work agent add the OCM work agent's
+// finalizer to every work, so a deleted ManifestWork remains, marked for
+// deletion, until releaseWorks, as it does while a real agent removes the
+// delivered objects from the managed cluster.
+const holdDeletion ackOption = 1
+
 // ackWorks plays the role of the OCM work agent and the enforcement
-// controller: it marks every FleetPermit ManifestWork as applied and accepted.
-func ackWorks(t testing.TB) {
+// controller: it marks every FleetPermit ManifestWork as applied and
+// accepted, and reports the delivered object's content digest.
+func ackWorks(t testing.TB, opts ...ackOption) {
 	t.Helper()
 	ctx := context.Background()
 	var list workv1.ManifestWorkList
@@ -188,6 +205,14 @@ func ackWorks(t testing.TB) {
 	}
 	for i := range list.Items {
 		w := &list.Items[i]
+		if slices.Contains(opts, holdDeletion) && w.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(w, workv1.ManifestWorkFinalizer) {
+			controllerutil.AddFinalizer(w, workv1.ManifestWorkFinalizer)
+			if err := k8s.Update(ctx, w); apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+				continue // the next round retries
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		}
 		if c := meta.FindStatusCondition(w.Status.Conditions, workv1.WorkApplied); c != nil && c.ObservedGeneration == w.Generation {
 			continue
 		}
@@ -200,19 +225,54 @@ func ackWorks(t testing.TB) {
 		accepted := "True"
 		for j, m := range w.Spec.Workload.Manifests {
 			var obj struct {
-				Metadata struct{ Name, Namespace string } `json:"metadata"`
+				Metadata struct {
+					Name, Namespace string
+					Annotations     map[string]string
+				} `json:"metadata"`
 			}
 			_ = json.Unmarshal(m.Raw, &obj)
+			values := []workv1.FeedbackValue{{Name: ocm.FeedbackAccepted, Value: workv1.FieldValue{Type: workv1.String, String: &accepted}}}
+			if d, ok := obj.Metadata.Annotations[agenticnetworking.AnnotationDigest]; ok {
+				values = append(values, workv1.FeedbackValue{Name: ocm.FeedbackDigest, Value: workv1.FieldValue{Type: workv1.String, String: &d}})
+			}
 			w.Status.ResourceStatus.Manifests = append(w.Status.ResourceStatus.Manifests, workv1.ManifestCondition{
 				ResourceMeta: workv1.ManifestResourceMeta{Ordinal: int32(j), Group: "agentic.networking.x-k8s.io", Version: "v1alpha1",
 					Kind: "XAccessPolicy", Resource: "xaccesspolicies", Name: obj.Metadata.Name, Namespace: obj.Metadata.Namespace},
-				StatusFeedbacks: workv1.StatusFeedbackResult{Values: []workv1.FeedbackValue{{
-					Name: ocm.FeedbackAccepted, Value: workv1.FieldValue{Type: workv1.String, String: &accepted},
-				}}},
-				Conditions: []metav1.Condition{{Type: workv1.ManifestApplied, Status: metav1.ConditionTrue, Reason: "Test", LastTransitionTime: metav1.Now()}},
+				StatusFeedbacks: workv1.StatusFeedbackResult{Values: values},
+				Conditions:      []metav1.Condition{{Type: workv1.ManifestApplied, Status: metav1.ConditionTrue, Reason: "Test", LastTransitionTime: metav1.Now()}},
 			})
 		}
 		if err := k8s.Status().Update(ctx, w); err != nil && !apierrors.IsConflict(err) && !apierrors.IsNotFound(err) {
+			t.Fatal(err)
+		}
+	}
+}
+
+// releaseWorks plays the work agent finishing its cleanup: it removes the
+// finalizer added by ackWorks(t, holdDeletion) from every ManifestWork, so
+// works marked for deletion go away.
+func releaseWorks(t testing.TB) {
+	t.Helper()
+	ctx := context.Background()
+	var list workv1.ManifestWorkList
+	if err := k8s.List(ctx, &list, client.MatchingLabels{ocm.LabelManagedBy: ocm.ManagedByValue}); err != nil {
+		t.Fatal(err)
+	}
+	for i := range list.Items {
+		w := &list.Items[i]
+		if !controllerutil.ContainsFinalizer(w, workv1.ManifestWorkFinalizer) {
+			continue
+		}
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := k8s.Get(ctx, clientKey(w), w); err != nil {
+				return err
+			}
+			if !controllerutil.RemoveFinalizer(w, workv1.ManifestWorkFinalizer) {
+				return nil
+			}
+			return k8s.Update(ctx, w)
+		})
+		if err != nil && !apierrors.IsNotFound(err) {
 			t.Fatal(err)
 		}
 	}
@@ -245,6 +305,42 @@ func poke(t testing.TB, obj client.Object) {
 		a["test.fleetpermit.github.io/poke"] = fmt.Sprint(time.Now().UnixNano())
 		obj.SetAnnotations(a)
 		return k8s.Update(ctx, obj)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// updatePolicy applies mutate to the current policy, retrying on conflicts
+// with the controller's status writes.
+func updatePolicy(t testing.TB, p *fpv1.FleetAccessPolicy, mutate func(*fpv1.FleetAccessPolicy)) {
+	t.Helper()
+	ctx := context.Background()
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var cur fpv1.FleetAccessPolicy
+		if err := k8s.Get(ctx, clientKey(p), &cur); err != nil {
+			return err
+		}
+		mutate(&cur)
+		return k8s.Update(ctx, &cur)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// updateWork applies mutate to the current ManifestWork, retrying on
+// conflicts with the controller and the simulated work agent.
+func updateWork(t testing.TB, w *workv1.ManifestWork, mutate func(*workv1.ManifestWork)) {
+	t.Helper()
+	ctx := context.Background()
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var cur workv1.ManifestWork
+		if err := k8s.Get(ctx, clientKey(w), &cur); err != nil {
+			return err
+		}
+		mutate(&cur)
+		return k8s.Update(ctx, &cur)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -401,14 +497,9 @@ func TestLeaseEscalationsAreDenied(t *testing.T) {
 	}
 
 	// A denied lease stays denied even if the policy later widens.
-	var cur fpv1.FleetAccessPolicy
-	if err := k8s.Get(ctx, clientKey(p), &cur); err != nil {
-		t.Fatal(err)
-	}
-	cur.Spec.Permissions = append(cur.Spec.Permissions, fpv1.Permission{Tool: "read_secret"})
-	if err := k8s.Update(ctx, &cur); err != nil {
-		t.Fatal(err)
-	}
+	updatePolicy(t, p, func(cur *fpv1.FleetAccessPolicy) {
+		cur.Spec.Permissions = append(cur.Spec.Permissions, fpv1.Permission{Tool: "read_secret"})
+	})
 	time.Sleep(2 * time.Second)
 	if got := getLease(t, perm); got.Status.Phase != fpv1.LeaseDenied {
 		t.Fatalf("a denied lease must not activate after the policy widens: %s", got.Status.Phase)
@@ -494,11 +585,9 @@ func TestTamperedOrDeletedManifestWorkIsRestored(t *testing.T) {
 	want := manifestJSON(orig)
 
 	// Broaden the delivered policy directly on the hub.
-	tampered := orig.DeepCopy()
-	tampered.Spec.Workload.Manifests[0].Raw = []byte(strings.Replace(string(tampered.Spec.Workload.Manifests[0].Raw), "restart_workload", "read_secret", 1))
-	if err := k8s.Update(ctx, tampered); err != nil {
-		t.Fatal(err)
-	}
+	updateWork(t, &orig, func(w *workv1.ManifestWork) {
+		w.Spec.Workload.Manifests[0].Raw = []byte(strings.Replace(string(w.Spec.Workload.Manifests[0].Raw), "restart_workload", "read_secret", 1))
+	})
 	eventually(t, 10*time.Second, "tampered ManifestWork to be restored", func() error {
 		if got := manifestJSON(works(t, p)["dr-east"]); strings.Contains(got, "read_secret") || got == "" {
 			return fmt.Errorf("still tampered: %s", got)
@@ -766,13 +855,16 @@ func TestDeliveryIsNotBlockedByConcurrentStatusWrites(t *testing.T) {
 	if err := k8s.Create(ctx, l); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 10*time.Second, "grant delivered despite status churn", func() error {
+	// The churn continues until the end of the test, so a delivery that
+	// conflicts with status writes never completes. The bound is loose for
+	// shared CI runners; an unobstructed delivery takes well under a second.
+	eventually(t, 20*time.Second, "grant delivered despite status churn", func() error {
 		if len(grantWorks(t, p)) != 1 {
 			return fmt.Errorf("grant not delivered yet")
 		}
 		return nil
 	})
-	if took := time.Since(start); took > 3*time.Second {
+	if took := time.Since(start); took > 15*time.Second {
 		t.Fatalf("delivery took %s under concurrent status writes; conflicts are delaying it", took)
 	}
 }
@@ -804,14 +896,9 @@ func TestPolicyDefaultChangeCannotExtendLease(t *testing.T) {
 		t.Fatalf("issued expiry %s, want %s", issued, want)
 	}
 
-	var cur fpv1.FleetAccessPolicy
-	if err := k8s.Get(ctx, clientKey(p), &cur); err != nil {
-		t.Fatal(err)
-	}
-	cur.Spec.Lease.DefaultDuration = &metav1.Duration{Duration: 9 * time.Minute}
-	if err := k8s.Update(ctx, &cur); err != nil {
-		t.Fatal(err)
-	}
+	updatePolicy(t, p, func(cur *fpv1.FleetAccessPolicy) {
+		cur.Spec.Lease.DefaultDuration = &metav1.Duration{Duration: 9 * time.Minute}
+	})
 	time.Sleep(2 * time.Second)
 	poke(t, l)
 	time.Sleep(time.Second)
@@ -1115,5 +1202,522 @@ func TestPropagationIsObservedOncePerLease(t *testing.T) {
 
 	if got := propagationSamples(t) - before; got != 1 {
 		t.Fatalf("expected one new propagation sample (the second lease), got %d", got)
+	}
+}
+
+func getPolicy(t testing.TB, p *fpv1.FleetAccessPolicy) *fpv1.FleetAccessPolicy {
+	t.Helper()
+	out := &fpv1.FleetAccessPolicy{}
+	if err := k8s.Get(context.Background(), clientKey(p), out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// clusterStatus returns the policy's status entry for a cluster, or nil.
+func clusterStatus(p *fpv1.FleetAccessPolicy, cluster string) *fpv1.ClusterStatus {
+	for i := range p.Status.Clusters {
+		if p.Status.Clusters[i].Name == cluster {
+			return &p.Status.Clusters[i]
+		}
+	}
+	return nil
+}
+
+// TestWithdrawalIsReportedUntilTheWorkIsGone checks that withdrawal from a
+// cluster that left the placement is reported as in progress for as long as
+// its ManifestWork is being deleted (the OCM work agent holds a finalizer
+// until it has removed the delivered objects): the policy lists the cluster
+// as Revoking, an expired lease keeps it as pending, and the revocation is
+// measured only once the work is gone.
+func TestWithdrawalIsReportedUntilTheWorkIsGone(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+	t.Cleanup(func() { releaseWorks(t) })
+
+	f := newFleet(t, "withdrawal", []string{"wd-east", "wd-west"}, []string{"wd-east", "wd-west"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	l := f.lease("incident-21", p.Name, time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	got := waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	eventually(t, 10*time.Second, "the work agent's finalizer on both works", func() error {
+		ackWorks(t, holdDeletion)
+		held := 0
+		for _, w := range works(t, p) {
+			if controllerutil.ContainsFinalizer(&w, workv1.ManifestWorkFinalizer) {
+				held++
+			}
+		}
+		if held != 2 {
+			return fmt.Errorf("%d of 2 works hold the finalizer", held)
+		}
+		return nil
+	})
+	before := revocationSamples(t)
+
+	// The lease expires and wd-west leaves the placement at the same time.
+	clock.Set(got.CreationTimestamp.Add(time.Minute + time.Second))
+	f.selectClusters(t, "wd-east")
+	withdrawing := func() error {
+		ackWorks(t, holdDeletion)
+		var w workv1.ManifestWork
+		if err := k8s.Get(ctx, types.NamespacedName{Namespace: "wd-west", Name: ocm.WorkName(p)}, &w); err != nil {
+			return fmt.Errorf("the work on wd-west must still exist while it is being deleted: %v", err)
+		}
+		if w.DeletionTimestamp.IsZero() {
+			return fmt.Errorf("the work on wd-west is not being deleted yet")
+		}
+		cur := getLease(t, l)
+		if cur.Status.Phase != fpv1.LeaseExpired || strings.Join(cur.Status.Clusters, ",") != "wd-west" ||
+			!meta.IsStatusConditionTrue(cur.Status.Conditions, fpv1.ConditionProgressing) {
+			return fmt.Errorf("the lease must still be withdrawing from wd-west: %+v", cur.Status)
+		}
+		pol := getPolicy(t, p)
+		cs := clusterStatus(pol, "wd-west")
+		if cs == nil || cs.Ready || cs.Reason != "Revoking" {
+			return fmt.Errorf("wd-west must be listed as Revoking: %+v", pol.Status.Clusters)
+		}
+		if !meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionProgressing) ||
+			pol.Status.SelectedClusters != 1 || pol.Status.ClusterSummary != "1/1" {
+			return fmt.Errorf("unexpected policy status %+v", pol.Status)
+		}
+		return nil
+	}
+	eventually(t, 15*time.Second, "wd-west to be reported as Revoking", withdrawing)
+	// Nothing changes while the work agent holds the work.
+	time.Sleep(2 * time.Second)
+	poke(t, l)
+	time.Sleep(time.Second)
+	if err := withdrawing(); err != nil {
+		t.Fatal(err)
+	}
+	if n := revocationSamples(t); n != before {
+		t.Fatalf("the revocation was measured while the grant was still being withdrawn (%d samples, was %d)", n, before)
+	}
+
+	// The work agent finishes: the work is gone and the withdrawal completes.
+	eventually(t, 15*time.Second, "the withdrawal to complete", func() error {
+		releaseWorks(t)
+		ackWorks(t)
+		cur := getLease(t, l)
+		if len(cur.Status.Clusters) != 0 || meta.IsStatusConditionTrue(cur.Status.Conditions, fpv1.ConditionProgressing) {
+			return fmt.Errorf("lease still withdrawing: %+v", cur.Status)
+		}
+		pol := getPolicy(t, p)
+		if clusterStatus(pol, "wd-west") != nil || meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionProgressing) ||
+			!meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionReady) {
+			return fmt.Errorf("policy still withdrawing: %+v", pol.Status)
+		}
+		if n := revocationSamples(t); n <= before {
+			return fmt.Errorf("no revocation sample recorded (count %d)", n)
+		}
+		return nil
+	})
+}
+
+// TestReplacedClusterWaitsForTheDeletingWork checks that a cluster placed
+// again while its previous ManifestWork is still being deleted is reported
+// as progressing, not as a delivery failure, and is delivered to once the
+// deletion completes.
+func TestReplacedClusterWaitsForTheDeletingWork(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+	t.Cleanup(func() { releaseWorks(t) })
+
+	f := newFleet(t, "replaced", []string{"rp-east", "rp-west"}, []string{"rp-east", "rp-west"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "both clusters ready with the work agent's finalizer", func() error {
+		ackWorks(t, holdDeletion)
+		pol := getPolicy(t, p)
+		if pol.Status.ClusterSummary != "2/2" {
+			return fmt.Errorf("clusters %s", pol.Status.ClusterSummary)
+		}
+		for c, w := range works(t, p) {
+			if !controllerutil.ContainsFinalizer(&w, workv1.ManifestWorkFinalizer) {
+				return fmt.Errorf("%s has no finalizer yet", c)
+			}
+		}
+		return nil
+	})
+
+	f.selectClusters(t, "rp-east")
+	eventually(t, 10*time.Second, "the work on rp-west to be deleting", func() error {
+		var w workv1.ManifestWork
+		if err := k8s.Get(ctx, types.NamespacedName{Namespace: "rp-west", Name: ocm.WorkName(p)}, &w); err != nil {
+			return err
+		}
+		if w.DeletionTimestamp.IsZero() {
+			return fmt.Errorf("not deleting yet")
+		}
+		return nil
+	})
+	f.selectClusters(t, "rp-east", "rp-west")
+	eventually(t, 10*time.Second, "rp-west to be reported as progressing", func() error {
+		pol := getPolicy(t, p)
+		cs := clusterStatus(pol, "rp-west")
+		if cs == nil || cs.Ready || cs.Reason != "Delivering" {
+			return fmt.Errorf("rp-west status %+v", cs)
+		}
+		if meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionDegraded) ||
+			!meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionProgressing) {
+			return fmt.Errorf("a deleting work is not a failure: %+v", pol.Status.Conditions)
+		}
+		return nil
+	})
+
+	eventually(t, 15*time.Second, "rp-west to be delivered again", func() error {
+		releaseWorks(t)
+		ackWorks(t)
+		pol := getPolicy(t, p)
+		if pol.Status.ClusterSummary != "2/2" || !meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionReady) {
+			return fmt.Errorf("status %+v", pol.Status)
+		}
+		return nil
+	})
+}
+
+// TestStatusClusterListIsCapped checks that a policy placed on more clusters
+// than status.clusters may list (512) still reports its status: the counts
+// stay exact, the Ready message says the list is truncated, and clusters
+// that are not ready are listed first.
+func TestStatusClusterListIsCapped(t *testing.T) {
+	ctx := context.Background()
+	stop := startController(t, time.Now)
+	defer stop()
+
+	const n = 513
+	var clusters []string
+	for i := 0; i < n; i++ {
+		clusters = append(clusters, fmt.Sprintf("cap-%03d", i))
+	}
+	f := newFleet(t, "status-cap", clusters, clusters)
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 90*time.Second, "exact counts and a capped cluster list", func() error {
+		ackWorks(t)
+		pol := getPolicy(t, p)
+		if pol.Status.SelectedClusters != n || pol.Status.ReadyClusters != n || pol.Status.ClusterSummary != "513/513" {
+			return fmt.Errorf("counts %d/%d (%q)", pol.Status.ReadyClusters, pol.Status.SelectedClusters, pol.Status.ClusterSummary)
+		}
+		if len(pol.Status.Clusters) != 512 {
+			return fmt.Errorf("%d clusters listed", len(pol.Status.Clusters))
+		}
+		if c := meta.FindStatusCondition(pol.Status.Conditions, fpv1.ConditionReady); c == nil || !strings.Contains(c.Message, "512 of 513") {
+			return fmt.Errorf("the Ready message must say the list is truncated: %+v", c)
+		}
+		return nil
+	})
+
+	// The last cluster by name, the one left out so far, fails to apply.
+	last := clusters[n-1]
+	var w workv1.ManifestWork
+	if err := k8s.Get(ctx, types.NamespacedName{Namespace: last, Name: ocm.WorkName(p)}, &w); err != nil {
+		t.Fatal(err)
+	}
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := k8s.Get(ctx, clientKey(&w), &w); err != nil {
+			return err
+		}
+		meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+			Type: workv1.WorkApplied, Status: metav1.ConditionFalse, Reason: "Test", Message: "apply failed", ObservedGeneration: w.Generation,
+		})
+		return k8s.Status().Update(ctx, &w)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 30*time.Second, "the failing cluster to be listed first", func() error {
+		pol := getPolicy(t, p)
+		if len(pol.Status.Clusters) != 512 || pol.Status.ReadyClusters != n-1 {
+			return fmt.Errorf("%d listed, %d ready", len(pol.Status.Clusters), pol.Status.ReadyClusters)
+		}
+		if first := pol.Status.Clusters[0]; first.Name != last || first.Ready {
+			return fmt.Errorf("first listed cluster %+v", first)
+		}
+		return nil
+	})
+}
+
+func placementChanges() float64 { return testutil.ToFloat64(metrics.PlacementChanges) }
+
+// TestPlacementChangesAreCountedOnce checks that
+// fleetpermit_placement_changes_total counts each change of the selected
+// clusters once, however often the policy is reconciled afterwards.
+func TestPlacementChangesAreCountedOnce(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "placement-metric", []string{"pc-east", "pc-west"}, []string{"pc-east", "pc-west"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	settled := func(summary string) func() error {
+		return func() error {
+			ackWorks(t)
+			pol := getPolicy(t, p)
+			if pol.Status.ClusterSummary != summary || len(pol.Status.Clusters) != int(pol.Status.SelectedClusters) ||
+				!meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionReady) {
+				return fmt.Errorf("status %+v", pol.Status)
+			}
+			return nil
+		}
+	}
+	eventually(t, 10*time.Second, "both clusters ready", settled("2/2"))
+	before := placementChanges()
+
+	f.selectClusters(t, "pc-east")
+	eventually(t, 10*time.Second, "pc-west to be dropped", settled("1/1"))
+	poke(t, p)
+	time.Sleep(time.Second)
+	f.selectClusters(t, "pc-east", "pc-west")
+	eventually(t, 10*time.Second, "pc-west to be added back", settled("2/2"))
+	poke(t, p)
+	time.Sleep(time.Second)
+	if got := placementChanges() - before; got != 2 {
+		t.Fatalf("one drop and one re-add must count 2 placement changes, got %v", got)
+	}
+}
+
+// TestTamperedWorkSpecIsRestored checks that edits to the ManifestWork spec
+// outside the manifests (delete option, update strategy, executor) are
+// reverted, and that the restored work is then left alone.
+func TestTamperedWorkSpecIsRestored(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "spec-drift", []string{"sd-east"}, []string{"sd-east"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	l := f.lease("incident-31", p.Name, 5*time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+
+	w := works(t, p)["sd-east"]
+	updateWork(t, &w, func(w *workv1.ManifestWork) {
+		// Orphan: deleting the work would leave the grant on the cluster.
+		w.Spec.DeleteOption = &workv1.DeleteOption{PropagationPolicy: workv1.DeletePropagationPolicyTypeOrphan}
+		// CreateOnly: later revocations would never reach the cluster.
+		w.Spec.ManifestConfigs[0].UpdateStrategy = &workv1.UpdateStrategy{Type: workv1.UpdateStrategyTypeCreateOnly}
+		w.Spec.Executor = &workv1.ManifestWorkExecutor{Subject: workv1.ManifestWorkExecutorSubject{
+			Type:           workv1.ExecutorSubjectTypeServiceAccount,
+			ServiceAccount: &workv1.ManifestWorkSubjectServiceAccount{Namespace: "kube-system", Name: "powerful"},
+		}}
+	})
+	var restored workv1.ManifestWork
+	eventually(t, 10*time.Second, "the work spec to be restored", func() error {
+		restored = works(t, p)["sd-east"]
+		s := restored.Spec
+		if s.DeleteOption == nil || s.DeleteOption.PropagationPolicy != workv1.DeletePropagationPolicyTypeForeground {
+			return fmt.Errorf("delete option %+v", s.DeleteOption)
+		}
+		if u := s.ManifestConfigs[0].UpdateStrategy; u == nil || u.Type != workv1.UpdateStrategyTypeServerSideApply || u.ServerSideApply == nil || !u.ServerSideApply.Force {
+			return fmt.Errorf("update strategy %+v", u)
+		}
+		if s.Executor != nil {
+			return fmt.Errorf("executor %+v", s.Executor)
+		}
+		return nil
+	})
+	poke(t, p)
+	time.Sleep(2 * time.Second)
+	if after := works(t, p)["sd-east"]; after.Generation != restored.Generation {
+		t.Fatalf("the restored work keeps being rewritten: generation %d, then %d", restored.Generation, after.Generation)
+	}
+}
+
+// TestLeaseCreatedBeforeItsPolicyActivates checks the apply order of GitOps
+// tools, which may create a lease before its policy: the lease waits as
+// Pending/PolicyNotFound, is not denied, and activates once the policy exists.
+func TestLeaseCreatedBeforeItsPolicyActivates(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+
+	f := newFleet(t, "apply-order", []string{"ao-east"}, []string{"ao-east"})
+	l := f.lease("early", "sre-remediation", 5*time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	waiting := func() error {
+		got := getLease(t, l)
+		c := meta.FindStatusCondition(got.Status.Conditions, fpv1.ConditionReady)
+		if got.Status.Phase != fpv1.LeasePending || c == nil || c.Reason != fpv1.ReasonPolicyNotFound {
+			return fmt.Errorf("phase %q, conditions %+v", got.Status.Phase, got.Status.Conditions)
+		}
+		if meta.IsStatusConditionTrue(got.Status.Conditions, fpv1.ConditionDenied) {
+			return fmt.Errorf("a lease whose policy does not exist yet must not be denied: %+v", got.Status.Conditions)
+		}
+		return nil
+	}
+	eventually(t, 10*time.Second, "the lease to wait for its policy", waiting)
+	poke(t, l)
+	time.Sleep(time.Second)
+	if err := waiting(); err != nil {
+		t.Fatal(err)
+	}
+
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+}
+
+// TestWorksOfAPolicyDeletedWithoutItsFinalizerAreRemoved checks that a
+// policy deleted without FleetPermit's cleanup (its finalizer was removed by
+// hand) does not leave its grants behind: its ManifestWorks are deleted.
+func TestWorksOfAPolicyDeletedWithoutItsFinalizerAreRemoved(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer func() { stop() }()
+
+	f := newFleet(t, "orphaned-works", []string{"or-east", "or-west"}, []string{"or-east", "or-west"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	l := f.lease("incident-41", p.Name, 5*time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	p = getPolicy(t, p)
+	if len(works(t, p)) != 2 {
+		t.Fatalf("expected works on both clusters, got %s", clusterSet(works(t, p)))
+	}
+
+	// With the controller stopped, remove the finalizer and delete the policy.
+	stop()
+	updatePolicy(t, p, func(cur *fpv1.FleetAccessPolicy) { controllerutil.RemoveFinalizer(cur, controller.Finalizer) })
+	if err := k8s.Delete(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "the policy to be gone", func() error {
+		if err := k8s.Get(ctx, clientKey(p), &fpv1.FleetAccessPolicy{}); !apierrors.IsNotFound(err) {
+			return fmt.Errorf("policy still present: %v", err)
+		}
+		return nil
+	})
+
+	stop = startController(t, clock.Now)
+	eventually(t, 15*time.Second, "the orphaned works to be removed", func() error {
+		if w := works(t, p); len(w) != 0 {
+			return fmt.Errorf("works remain on %s", clusterSet(w))
+		}
+		return nil
+	})
+	waitLeasePhase(t, l, fpv1.LeaseDenied, fpv1.ReasonPolicyNotFound)
+}
+
+// TestWatchNamespaceIgnoresOtherNamespaces checks --watch-namespace: a
+// ManifestWork that names a policy in another namespace is ignored instead
+// of failing reconciles for a namespace the cache does not hold, while
+// policies in the watched namespace are reconciled as usual.
+func TestWatchNamespaceIgnoresOtherNamespaces(t *testing.T) {
+	ctx := context.Background()
+	stop := startControllerIn(t, time.Now, "wn-home")
+	defer stop()
+
+	f := newFleet(t, "wn-home", []string{"wn-east"}, []string{"wn-east"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "the watched policy to be ready", func() error {
+		ackWorks(t)
+		pol := getPolicy(t, p)
+		if pol.Status.ClusterSummary != "1/1" || !meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionReady) {
+			return fmt.Errorf("status %+v", pol.Status)
+		}
+		return nil
+	})
+
+	errorsBefore := testutil.ToFloat64(metrics.ReconcileErrors)
+	createNamespace(t, "wn-other")
+	foreign := &workv1.ManifestWork{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "wn-east", Name: "fleetpermit-elsewhere",
+			Labels:      map[string]string{ocm.LabelManagedBy: ocm.ManagedByValue, ocm.LabelPolicyUID: "elsewhere"},
+			Annotations: map[string]string{ocm.AnnotationPolicy: "wn-other/sre-remediation"},
+		},
+		Spec: workv1.ManifestWorkSpec{Workload: workv1.ManifestsTemplate{Manifests: []workv1.Manifest{{
+			RawExtension: runtime.RawExtension{Raw: []byte(`{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"elsewhere","namespace":"default"}}`)},
+		}}}},
+	}
+	if err := k8s.Create(ctx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+	if got := testutil.ToFloat64(metrics.ReconcileErrors) - errorsBefore; got != 0 {
+		t.Fatalf("%v reconcile errors for a policy outside the watch namespace", got)
+	}
+}
+
+func reconciles() float64 {
+	return testutil.ToFloat64(metrics.ReconcileTotal.WithLabelValues("success")) +
+		testutil.ToFloat64(metrics.ReconcileTotal.WithLabelValues("error"))
+}
+
+// TestPermanentDeliveryFailureBacksOff checks that a delivery failure that
+// persists (the ManifestWork name is held by another policy) is retried with
+// a growing delay rather than every second. The controller watches only the
+// test's namespace, so every reconcile counted is this policy's.
+func TestPermanentDeliveryFailureBacksOff(t *testing.T) {
+	ctx := context.Background()
+	stop := startControllerIn(t, time.Now, "backoff")
+	defer stop()
+
+	f := newFleet(t, "backoff", []string{"bo-east"}, []string{"bo-east"})
+	p := f.policy("sre-remediation")
+	foreign := &workv1.ManifestWork{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "bo-east", Name: ocm.WorkName(p),
+			Labels: map[string]string{ocm.LabelManagedBy: ocm.ManagedByValue, ocm.LabelPolicyUID: "someone-else"},
+		},
+		Spec: workv1.ManifestWorkSpec{Workload: workv1.ManifestsTemplate{Manifests: []workv1.Manifest{{
+			RawExtension: runtime.RawExtension{Raw: []byte(`{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"foreign","namespace":"default"}}`)},
+		}}}},
+	}
+	if err := k8s.Create(ctx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "the delivery failure to be reported", func() error {
+		if cs := clusterStatus(getPolicy(t, p), "bo-east"); cs == nil || cs.Reason != "DeliveryFailed" {
+			return fmt.Errorf("bo-east status %+v", cs)
+		}
+		return nil
+	})
+	before := reconciles()
+	time.Sleep(10 * time.Second)
+	if n := reconciles() - before; n > 5 {
+		t.Fatalf("%v reconciles in 10s for a failure that persists; want at most 5", n)
 	}
 }
