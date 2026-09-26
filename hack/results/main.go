@@ -371,7 +371,8 @@ func markdown(out map[string]any) string {
 		w("- Each sample includes one host-to-pod probe round trip (see the baseline row), and polling adds up to about 250 ms.\n")
 		w("- Occasional activation outliers of a few seconds come from the OCM work agent retrying, with backoff, a status update that conflicted with FleetPermit's spec update on the same ManifestWork (`Operation cannot be fulfilled ... the object has been modified` in the work-agent log).\n")
 		w("- Drift recovery is bounded by the klusterlet status sync interval (10 s in the lab): FleetPermit requests an immediate re-apply once OCM reports the object missing.\n")
-		w("- Ready status includes OCM status feedback, so it depends on the same status sync interval.\n\n")
+		w("- Ready status includes OCM status feedback, so it depends on the same status sync interval.\n")
+		w("- **Open issue:** in end-to-end runs, the first lease after lab setup has repeatedly reached one cluster about 5 s late while the other cluster took about 130 ms. The OCM work agent on the slow cluster applied the change about 5 s after the lease was created, and the gateway allowed the call about 0.4 s after that apply, so the delay is between the hub and that work agent. It did not reproduce in isolation (182 ms), and every later activation in the benchmark took 170–460 ms. The suite now captures hub and work-agent logs whenever an activation exceeds 2 s (`test-results/diagnostics/`).\n\n")
 	}
 
 	if reps, ok := out["reproductions"].([]map[string]any); ok && len(reps) > 0 {

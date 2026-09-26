@@ -105,6 +105,16 @@ s1() {
   east="$(wait_decision sre-agent cluster-east restart_workload ALLOW 60)" || st=fail
   west="$(wait_decision sre-agent cluster-west restart_workload ALLOW 60)" || st=fail
   local te=$(( $(cut -d' ' -f1 <<<"$east") )) tw=$(( $(cut -d' ' -f1 <<<"$west") ))
+  # Slow activations are kept diagnosable: capture hub and work-agent logs.
+  if (( te > 2000 || tw > 2000 )); then
+    local d="${FP_RESULTS_DIR}/diagnostics/S1-$(date -u +%Y%m%dT%H%M%SZ)"
+    mkdir -p "$d"
+    hub -n "${FP_SYSTEM_NAMESPACE}" logs deploy/fleetpermit-controller --since=2m >"$d/fleetpermit-controller.log" 2>&1 || true
+    for c in cluster-east cluster-west; do
+      kc "$c" -n open-cluster-management-agent logs deploy/klusterlet-work-agent --timestamps --since=2m >"$d/work-agent-$c.log" 2>&1 || true
+    done
+    hub get manifestwork -A -l app.kubernetes.io/managed-by=fleetpermit -o yaml >"$d/manifestworks.yaml" 2>&1 || true
+  fi
   wait_lease_phase e2e-s1 Active 60 || st=fail
   local start; start=$(date +%s)
   until [[ "$(lease_field e2e-s1 '{.status.conditions[?(@.type=="Ready")].status}')" == True ]]; do
