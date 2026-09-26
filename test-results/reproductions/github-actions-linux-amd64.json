@@ -1,9 +1,9 @@
 {
   "kind": "real-multicluster-e2e",
   "runner": "GitHub Actions ubuntu-latest",
-  "runURL": "https://github.com/fleetpermit/fleetpermit/actions/runs/36238381559",
-  "startedAt": "2026-09-26T11:30:41Z",
-  "finishedAt": "2026-09-26T11:33:17Z",
+  "runURL": "https://github.com/fleetpermit/fleetpermit/actions/runs/36241659987",
+  "startedAt": "2026-09-26T12:30:52Z",
+  "finishedAt": "2026-09-26T12:33:56Z",
   "environment": {
     "description": "local kind clusters on a single development host; not a production benchmark",
     "hub": 1,
@@ -22,11 +22,11 @@
     "containerEngine": "docker",
     "os": "Linux",
     "arch": "x86_64",
-    "fleetpermitCommit": "e3da2e2"
+    "fleetpermitCommit": "73ebcf1"
   },
   "summary": {
-    "total": 20,
-    "passed": 19,
+    "total": 21,
+    "passed": 20,
     "failed": 0,
     "unsupported": 1
   },
@@ -51,9 +51,9 @@
       "status": "pass",
       "observed": "ALLOW east+west",
       "metrics": {
-        "activationToAllowMsEast": 311,
-        "activationToAllowMsWest": 201,
-        "activationToReadyStatusMs": 900
+        "activationToAllowMsEast": 367,
+        "activationToAllowMsWest": 230,
+        "activationToReadyStatusMs": 1044
       }
     },
     {
@@ -104,18 +104,18 @@
       "status": "pass",
       "observed": "DENY",
       "metrics": {
-        "revocationToDenyMsEast": 284,
-        "revocationToDenyMsWest": 182
+        "revocationToDenyMsEast": 323,
+        "revocationToDenyMsWest": 235
       }
     },
     {
       "id": "S5",
       "name": "Lease expiry: ALLOW before, DENY after",
       "status": "pass",
-      "observed": "before=ALLOW, after=DENY 491ms after expiresAt",
+      "observed": "before=ALLOW, after=DENY 292ms after expiresAt",
       "metrics": {
-        "expiresAt": "2026-09-26T11:31:35Z",
-        "expiryToDenyMs": 491
+        "expiresAt": "2026-09-26T12:31:45Z",
+        "expiryToDenyMs": 292
       }
     },
     {
@@ -131,17 +131,17 @@
       "status": "pass",
       "observed": "west DENY, edge ALLOW",
       "metrics": {
-        "labelChangeToDenyMs": 232,
-        "labelChangeToAllowMs": 189
+        "labelChangeToDenyMs": 336,
+        "labelChangeToAllowMs": 217
       }
     },
     {
       "id": "S10",
       "name": "Drift: rendered XAccessPolicy deleted on a managed cluster",
       "status": "pass",
-      "observed": "right after deletion: DENY (gateway not yet updated); 2s later: DENY; ALLOW restored 9462ms after deletion",
+      "observed": "right after deletion: DENY (gateway not yet updated); 2s later: DENY; ALLOW restored 8622ms after deletion",
       "metrics": {
-        "driftRecoveryMs": 9462
+        "driftRecoveryMs": 8622
       }
     },
     {
@@ -155,10 +155,10 @@
       "id": "S11",
       "name": "Hub disconnected before expiry: managed clusters stop honouring the lease on time",
       "status": "pass",
-      "observed": "DENY 46ms (east) / 222ms (west) after expiresAt; rendered policy still present on east (xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779), so the denial came from the data-plane time bound",
+      "observed": "DENY 278ms (east) / 520ms (west) after expiresAt; rendered policy still present on east (xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779b9dca599), so the denial came from the data-plane time bound",
       "metrics": {
-        "expiryToDenyMsEast": 46,
-        "expiryToDenyMsWest": 222,
+        "expiryToDenyMsEast": 278,
+        "expiryToDenyMsWest": 520,
         "hubReachable": false
       }
     },
@@ -166,9 +166,19 @@
       "id": "S12",
       "name": "Reconnection: hub marks the lease Expired and withdraws stale grants",
       "status": "pass",
-      "observed": "converged 1476ms after the hub resumed",
+      "observed": "converged 1192ms after the hub resumed",
       "metrics": {
-        "reconnectConvergenceMs": 1476
+        "reconnectConvergenceMs": 1192
+      }
+    },
+    {
+      "id": "MATRIX",
+      "name": "Decision matrix: 2 agents x 3 clusters x 4 tools, lease active and expired",
+      "status": "pass",
+      "observed": "48 of 48 real calls matched the expected outcome",
+      "metrics": {
+        "calls": 48,
+        "matched": 48
       }
     },
     {

@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" role="img" aria-labelledby="dm-t dm-d">
+<title id="dm-t">FleetPermit decision rule: 2 agents, 3 clusters, 4 tools</title>
+<desc id="dm-d">Expected decisions from policy sre-remediation and one active lease, drawn as two grids. With the lease active, only sre-agent calling get_cluster_health or restart_workload on cluster-east or cluster-west is allowed; every other combination is denied, including scale_workload (permitted by the policy but not granted by the lease), read_secret (not permitted), cluster-edge (outside the placement) and security-agent (not a subject). With the lease expired, every combination is denied. This is a diagram of the policy, not a test result.</desc>
+<style>
+svg { fill: #E6EDF6; }
+text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+.mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.dim { fill: #A9B8CD; }
+</style>
+<rect width="1200" height="600" rx="20" fill="#0C1728"/>
+<text x="40" y="52" font-size="24" font-weight="700">Who may call which tool, where, and while the lease holds</text>
+<text class="dim" x="40" y="78" font-size="14">Expected decisions from policy sre-remediation and lease incident-42. A diagram of the policy, not a test result.</text>
+<rect x="40" y="104" width="540" height="330" rx="16" fill="#0F1E33" stroke="#2E4468" stroke-width="1.5"/>
+<text x="60" y="138" font-size="17" font-weight="700">Lease <tspan fill="#F5B544">active</tspan></text>
+<text class="mono dim" x="271.0" y="168" font-size="11.5" text-anchor="middle">get_cluster_</text>
+<text class="mono dim" x="271.0" y="183" font-size="11.5" text-anchor="middle">health</text>
+<text class="mono dim" x="359.0" y="168" font-size="11.5" text-anchor="middle">restart_</text>
+<text class="mono dim" x="359.0" y="183" font-size="11.5" text-anchor="middle">workload</text>
+<text class="mono dim" x="447.0" y="168" font-size="11.5" text-anchor="middle">scale_</text>
+<text class="mono dim" x="447.0" y="183" font-size="11.5" text-anchor="middle">workload</text>
+<text class="mono dim" x="535.0" y="168" font-size="11.5" text-anchor="middle">read_</text>
+<text class="mono dim" x="535.0" y="183" font-size="11.5" text-anchor="middle">secret</text>
+<text class="mono dim" x="182" y="218" font-size="12.5">east</text>
+<rect x="230" y="198" width="82" height="30" rx="7" fill="#0F3B3A" stroke="#2DD4BF" stroke-width="1.5"/>
+<text x="271.0" y="218" font-size="12" font-weight="800" text-anchor="middle" fill="#2DD4BF">ALLOW</text>
+<rect x="318" y="198" width="82" height="30" rx="7" fill="#0F3B3A" stroke="#2DD4BF" stroke-width="1.5"/>
+<text x="359.0" y="218" font-size="12" font-weight="800" text-anchor="middle" fill="#2DD4BF">ALLOW</text>
+<rect x="406" y="198" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="447.0" y="218" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="494" y="198" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="535.0" y="218" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono dim" x="182" y="254" font-size="12.5">west</text>
+<rect x="230" y="234" width="82" height="30" rx="7" fill="#0F3B3A" stroke="#2DD4BF" stroke-width="1.5"/>
+<text x="271.0" y="254" font-size="12" font-weight="800" text-anchor="middle" fill="#2DD4BF">ALLOW</text>
+<rect x="318" y="234" width="82" height="30" rx="7" fill="#0F3B3A" stroke="#2DD4BF" stroke-width="1.5"/>
+<text x="359.0" y="254" font-size="12" font-weight="800" text-anchor="middle" fill="#2DD4BF">ALLOW</text>
+<rect x="406" y="234" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="447.0" y="254" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="494" y="234" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="535.0" y="254" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono dim" x="182" y="290" font-size="12.5">edge</text>
+<rect x="230" y="270" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="271.0" y="290" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="318" y="270" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="359.0" y="290" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="406" y="270" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="447.0" y="290" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="494" y="270" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="535.0" y="290" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono" x="60" y="254.0" font-size="13" font-weight="700" fill="#F5B544">sre-agent</text>
+<text class="mono dim" x="182" y="336" font-size="12.5">east</text>
+<rect x="230" y="316" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="271.0" y="336" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="318" y="316" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="359.0" y="336" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="406" y="316" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="447.0" y="336" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="494" y="316" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="535.0" y="336" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono dim" x="182" y="372" font-size="12.5">west</text>
+<rect x="230" y="352" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="271.0" y="372" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="318" y="352" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="359.0" y="372" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="406" y="352" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="447.0" y="372" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="494" y="352" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="535.0" y="372" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono dim" x="182" y="408" font-size="12.5">edge</text>
+<rect x="230" y="388" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="271.0" y="408" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="318" y="388" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="359.0" y="408" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="406" y="388" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="447.0" y="408" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="494" y="388" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="535.0" y="408" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono" x="60" y="372.0" font-size="13" font-weight="700" fill="#CBD5E1">security-agent</text>
+<rect x="620" y="104" width="540" height="330" rx="16" fill="#0F1E33" stroke="#2E4468" stroke-width="1.5"/>
+<text x="640" y="138" font-size="17" font-weight="700">Lease <tspan fill="#FF7A7A">expired</tspan></text>
+<text class="mono dim" x="851.0" y="168" font-size="11.5" text-anchor="middle">get_cluster_</text>
+<text class="mono dim" x="851.0" y="183" font-size="11.5" text-anchor="middle">health</text>
+<text class="mono dim" x="939.0" y="168" font-size="11.5" text-anchor="middle">restart_</text>
+<text class="mono dim" x="939.0" y="183" font-size="11.5" text-anchor="middle">workload</text>
+<text class="mono dim" x="1027.0" y="168" font-size="11.5" text-anchor="middle">scale_</text>
+<text class="mono dim" x="1027.0" y="183" font-size="11.5" text-anchor="middle">workload</text>
+<text class="mono dim" x="1115.0" y="168" font-size="11.5" text-anchor="middle">read_</text>
+<text class="mono dim" x="1115.0" y="183" font-size="11.5" text-anchor="middle">secret</text>
+<text class="mono dim" x="762" y="218" font-size="12.5">east</text>
+<rect x="810" y="198" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="851.0" y="218" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="898" y="198" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="939.0" y="218" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="986" y="198" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1027.0" y="218" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="1074" y="198" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1115.0" y="218" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono dim" x="762" y="254" font-size="12.5">west</text>
+<rect x="810" y="234" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="851.0" y="254" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="898" y="234" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="939.0" y="254" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="986" y="234" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1027.0" y="254" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="1074" y="234" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1115.0" y="254" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono dim" x="762" y="290" font-size="12.5">edge</text>
+<rect x="810" y="270" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="851.0" y="290" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="898" y="270" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="939.0" y="290" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="986" y="270" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1027.0" y="290" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="1074" y="270" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1115.0" y="290" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono" x="640" y="254.0" font-size="13" font-weight="700" fill="#F5B544">sre-agent</text>
+<text class="mono dim" x="762" y="336" font-size="12.5">east</text>
+<rect x="810" y="316" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="851.0" y="336" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="898" y="316" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="939.0" y="336" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="986" y="316" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1027.0" y="336" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="1074" y="316" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1115.0" y="336" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono dim" x="762" y="372" font-size="12.5">west</text>
+<rect x="810" y="352" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="851.0" y="372" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="898" y="352" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="939.0" y="372" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="986" y="352" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1027.0" y="372" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="1074" y="352" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1115.0" y="372" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono dim" x="762" y="408" font-size="12.5">edge</text>
+<rect x="810" y="388" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="851.0" y="408" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="898" y="388" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="939.0" y="408" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="986" y="388" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1027.0" y="408" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<rect x="1074" y="388" width="82" height="30" rx="7" fill="#1A1622" stroke="#FF7A7A" stroke-opacity="0.55" stroke-width="1.2"/>
+<text x="1115.0" y="408" font-size="12" font-weight="800" text-anchor="middle" fill="#FF9A9A">DENY</text>
+<text class="mono" x="640" y="372.0" font-size="13" font-weight="700" fill="#CBD5E1">security-agent</text>
+<g font-size="14">
+<text x="40" y="478" font-weight="700">ALLOW only when all four hold:</text>
+<text class="dim" x="40" y="504"><tspan fill="#2DD4BF" font-weight="700">WHO</tspan> the agent is sre-agent, a subject of the policy; security-agent is not.</text>
+<text class="dim" x="40" y="528"><tspan fill="#2DD4BF" font-weight="700">WHERE</tspan> the cluster is east or west (env=production); edge is outside the placement.</text>
+<text class="dim" x="40" y="552"><tspan fill="#2DD4BF" font-weight="700">WHAT</tspan> the tool is in the lease: get_cluster_health or restart_workload. scale_workload is permitted by the policy but not leased; read_secret is not permitted.</text>
+<text class="dim" x="40" y="576"><tspan fill="#F5B544" font-weight="700">HOW LONG</tspan> the lease is active; after expiry the gateway denies every call.</text>
+</g>
+</svg>

@@ -15,7 +15,14 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/readme-hero.svg" alt="Animated overview: a permit travels from FleetPermit to cluster-east and cluster-west, where tool calls are allowed; a call to cluster-edge is denied; when the lease timer runs out the permit disappears and the same call is denied." width="880">
+  <strong>Star us&nbsp;→</strong>&nbsp;<a href="https://github.com/fleetpermit/fleetpermit" title="Star FleetPermit on GitHub"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/star-dark.svg">
+    <img src="docs/assets/star-light.svg" alt="Star FleetPermit on GitHub" width="160" height="36" align="middle">
+  </picture></a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme-hero.svg" alt="Animated overview: a permit travels from FleetPermit to cluster-east and cluster-west, where sre-agent's restart_workload call is allowed; a call from security-agent and any call to cluster-edge are denied; when the lease countdown runs out the permits dissolve and the same call is denied, until a new lease is issued." width="880">
 </p>
 
 FleetPermit gives AI agents **time-bound, fleet-wide authorization** to call tools. You write one
@@ -187,11 +194,18 @@ Recordings of real runs: [demo/recordings](demo/recordings) (asciinema) and MP4s
 
 ## Measured results
 
+<p align="center">
+  <img src="docs/assets/decision-matrix.svg" alt="Expected decisions for 2 agents, 3 clusters and 4 tools: with the lease active, only sre-agent calling get_cluster_health or restart_workload on cluster-east or cluster-west is allowed; with the lease expired every call is denied." width="880">
+</p>
+
+The diagram shows the *expected* decisions under the demo policy. The table below shows what 48 real
+calls through the lab's gateways actually returned.
+
 <!-- results:start -->
 Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM v1.3.1, kube-agentic-networking v0.2.0, Darwin/arm64, 2026-09-26):
 
 - **20 of 21 scenarios passed**, 0 failed, 1 not supported by the upstream API (argument-level matching).
-- **Reproduced independently** on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 19 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36238381559)).
+- **Reproduced independently** on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36241659987)).
 - **Decision matrix: 48 of 48 real MCP calls matched the expected outcome.**
 
 #### Test agents and expected outcomes
