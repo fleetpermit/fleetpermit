@@ -89,6 +89,7 @@ func TestRenderedPoliciesAreValidUpstreamObjects(t *testing.T) {
 			if err := k8s.Create(ctx, res.Objects[0]); err != nil {
 				t.Fatalf("upstream XAccessPolicy CRD rejected the rendered object: %v", err)
 			}
+			removeAfter(t, res.Objects[0])
 		})
 	}
 }
@@ -108,4 +109,5 @@ func TestDefaultDenyAnchorIsValid(t *testing.T) {
 	if err := k8s.Create(context.Background(), u); err != nil {
 		t.Fatalf("anchor rejected by the upstream CRD: %v", err)
 	}
+	removeAfter(t, u)
 }

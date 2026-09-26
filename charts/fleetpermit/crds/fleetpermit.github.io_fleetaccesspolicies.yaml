@@ -87,9 +87,9 @@ spec:
                 description: Lease controls time-bound activation.
                 properties:
                   defaultDuration:
-                    default: 15m
-                    description: DefaultDuration is used when a lease does not request
-                      a duration.
+                    description: |-
+                      DefaultDuration is used when a lease does not request a duration.
+                      When unset, it is 15m, or maxDuration if that is shorter.
                     type: string
                   maxDuration:
                     default: 1h
@@ -215,8 +215,10 @@ spec:
                       attaches to.
                     properties:
                       group:
-                        default: agentic.networking.x-k8s.io
-                        description: Group of the target resource.
+                        description: |-
+                          Group of the target resource. When unset, it is the group that serves
+                          the kind: agentic.networking.x-k8s.io for XBackend and
+                          gateway.networking.k8s.io for Gateway.
                         enum:
                         - agentic.networking.x-k8s.io
                         - gateway.networking.k8s.io
@@ -284,8 +286,9 @@ spec:
                         enforcement content.
                       type: string
                     grants:
-                      description: Grants is the number of lease grants rendered for
-                        this cluster.
+                      description: |-
+                        Grants is the number of grants, lease and standing, rendered for this
+                        cluster.
                       format: int32
                       type: integer
                     message:

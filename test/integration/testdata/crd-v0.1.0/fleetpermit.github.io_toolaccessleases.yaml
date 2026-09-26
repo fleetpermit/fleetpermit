@@ -79,13 +79,8 @@ spec:
               duration:
                 description: |-
                   Duration of the lease, measured from its creation. Defaults to the
-                  policy's defaultDuration and must not exceed its maxDuration. When it is
-                  omitted, the default in effect at the lease's first evaluation is pinned
-                  through status.expiresAt; later policy changes cannot extend it.
+                  policy's defaultDuration and must not exceed its maxDuration.
                 type: string
-                x-kubernetes-validations:
-                - message: duration must be at least 10s
-                  rule: duration(self) >= duration('10s')
               permissions:
                 description: Permissions must be a subset of the policy's permissions.
                 items:
@@ -149,12 +144,7 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: spec is immutable; create a new ToolAccessLease instead
-              rule: 'self.policyRef == oldSelf.policyRef && self.subject == oldSelf.subject
-                && self.permissions == oldSelf.permissions && has(self.duration) ==
-                has(oldSelf.duration) && (!has(self.duration) || duration(self.duration)
-                == duration(oldSelf.duration)) && (has(self.clusters) ? self.clusters
-                : []) == (has(oldSelf.clusters) ? oldSelf.clusters : []) && (has(self.reason)
-                ? self.reason : '''') == (has(oldSelf.reason) ? oldSelf.reason : '''')'
+              rule: self == oldSelf
           status:
             description: ToolAccessLeaseStatus is the observed state of a lease.
             properties:
@@ -163,9 +153,7 @@ spec:
                 format: int32
                 type: integer
               clusters:
-                description: |-
-                  Clusters that hold an active grant for this lease, sorted. After expiry
-                  or denial, the clusters from which the grant is still being withdrawn.
+                description: Clusters that hold an active grant for this lease, sorted.
                 items:
                   type: string
                 type: array
@@ -233,10 +221,8 @@ spec:
                 x-kubernetes-list-type: map
               expiresAt:
                 description: |-
-                  ExpiresAt is creationTimestamp plus the effective duration. For a lease
-                  without spec.duration, the effective duration is the policy default in
-                  effect at the first evaluation, pinned here; policy changes never extend
-                  it. Only the controller should be allowed to write lease status.
+                  ExpiresAt is creationTimestamp plus the effective duration. It is
+                  computed once from immutable inputs and never extended.
                 format: date-time
                 type: string
               observedGeneration:

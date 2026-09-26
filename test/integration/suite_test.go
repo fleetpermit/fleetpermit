@@ -60,7 +60,17 @@ var (
 	cfg    *rest.Config
 	k8s    client.Client
 	scheme = runtime.NewScheme()
+	ocmDir string
 )
+
+// ocmCRDDirs are the Open Cluster Management CRDs the controller watches.
+func ocmCRDDirs() []string {
+	return []string{
+		filepath.Join(ocmDir, "cluster", "v1"),
+		filepath.Join(ocmDir, "cluster", "v1beta1"),
+		filepath.Join(ocmDir, "work", "v1"),
+	}
+}
 
 func TestMain(m *testing.M) {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -78,7 +88,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	ocmDir, err := moduleDir("open-cluster-management.io/api")
+	ocmDir, err = moduleDir("open-cluster-management.io/api")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "locating the OCM API module:", err)
 		os.Exit(1)
@@ -88,13 +98,7 @@ func TestMain(m *testing.M) {
 		upstream = dir // used by hack/upstream-canary.sh
 	}
 	env := &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join(root, "config", "crd"),
-			upstream,
-			filepath.Join(ocmDir, "cluster", "v1"),
-			filepath.Join(ocmDir, "cluster", "v1beta1"),
-			filepath.Join(ocmDir, "work", "v1"),
-		},
+		CRDDirectoryPaths:     append([]string{filepath.Join(root, "config", "crd"), upstream}, ocmCRDDirs()...),
 		ErrorIfCRDPathMissing: true,
 	}
 	cfg, err = env.Start()
@@ -153,7 +157,13 @@ func startController(t testing.TB, clock func() time.Time) func() {
 // startControllerIn is startController with --watch-namespace set.
 func startControllerIn(t testing.TB, clock func() time.Time, watchNamespace string) func() {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	return runController(t, cfg, clock, watchNamespace)
+}
+
+// runController runs the reconciler against the API server at restCfg.
+func runController(t testing.TB, restCfg *rest.Config, clock func() time.Time, watchNamespace string) func() {
+	t.Helper()
+	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:     scheme,
 		Metrics:    metricsserver.Options{BindAddress: "0"},
 		Controller: ctrlConfig(),
@@ -163,7 +173,7 @@ func startControllerIn(t testing.TB, clock func() time.Time, watchNamespace stri
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := controller.IndexLeases(ctx, mgr); err != nil {
+	if err := controller.IndexFields(ctx, mgr); err != nil {
 		t.Fatal(err)
 	}
 	r := &controller.PolicyReconciler{
@@ -196,6 +206,29 @@ func createNamespace(t testing.TB, name string) {
 	if err := k8s.Create(context.Background(), ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		t.Fatal(err)
 	}
+}
+
+// remove deletes obj, dropping its finalizers first because the controller
+// that would process them has stopped. Tests remove what they create so that
+// the suite can run more than once against one API server (go test -count).
+func remove(t testing.TB, obj client.Object) {
+	t.Helper()
+	ctx := context.Background()
+	if len(obj.GetFinalizers()) > 0 {
+		base := obj.DeepCopyObject().(client.Object)
+		obj.SetFinalizers(nil)
+		if err := k8s.Patch(ctx, obj, client.MergeFrom(base)); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("removing the finalizers of %s: %v", obj.GetName(), err)
+		}
+	}
+	if err := k8s.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+		t.Errorf("deleting %s: %v", obj.GetName(), err)
+	}
+}
+
+// removeAfter removes obj when the test and its deferred calls are done.
+func removeAfter(t testing.TB, obj client.Object) {
+	t.Cleanup(func() { remove(t, obj) })
 }
 
 // pollInterval is how often eventually re-checks; it bounds timing resolution.

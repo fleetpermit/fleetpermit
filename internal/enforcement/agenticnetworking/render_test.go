@@ -280,6 +280,21 @@ func TestRenderGatewayTarget(t *testing.T) {
 	}
 }
 
+// TestRenderGatewayTargetWithoutGroup checks that a Gateway target without
+// a group is rendered in the Gateway API group, not the agentic one.
+func TestRenderGatewayTargetWithoutGroup(t *testing.T) {
+	p := testPolicy()
+	p.Spec.Target.Ref = fpv1.TargetRef{Kind: "Gateway", Name: "agentic-gw"}
+	res, err := Renderer{}.Render(enforcement.Request{Policy: p, Cluster: "c", Grants: []enforcement.Grant{grant("a", sre, "t")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, _, _ := unstructured.NestedSlice(res.Objects[0].Object, "spec", "targetRefs")
+	if ref := tr[0].(map[string]any); ref["kind"] != "Gateway" || ref["group"] != "gateway.networking.k8s.io" {
+		t.Fatalf("unexpected targetRef %v", ref)
+	}
+}
+
 func TestObjectNameBounded(t *testing.T) {
 	a := ObjectName("fleet", "sre-remediation")
 	if !strings.HasPrefix(a, "fleetpermit-sre-remediation-") {

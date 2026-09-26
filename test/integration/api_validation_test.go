@@ -69,11 +69,14 @@ func TestAPIDefaults(t *testing.T) {
 	if err := k8s.Create(context.Background(), p); err != nil {
 		t.Fatalf("minimal policy rejected: %v", err)
 	}
+	removeAfter(t, p)
+	// The target's group and the default lease duration are derived rather
+	// than stored: the group from the kind, the duration from the maximum.
 	s := p.Spec
 	if s.Placement.Provider != "ocm" || s.Target.Protocol != "MCP" || s.Target.Ref.Kind != "XBackend" ||
-		s.Target.Ref.Group != "agentic.networking.x-k8s.io" || s.Enforcement.Provider != "kubernetes-agentic-networking" ||
-		s.Enforcement.FailMode != "Closed" || !p.LeaseRequired() ||
-		s.Lease.DefaultDuration == nil || s.Lease.DefaultDuration.Duration != 15*time.Minute ||
+		s.Target.Ref.Group != "" || s.Target.Ref.ResolvedGroup() != "agentic.networking.x-k8s.io" ||
+		s.Enforcement.Provider != "kubernetes-agentic-networking" || s.Enforcement.FailMode != "Closed" || !p.LeaseRequired() ||
+		s.Lease.DefaultDuration != nil || p.DefaultDuration() != 15*time.Minute ||
 		s.Lease.MaxDuration == nil || s.Lease.MaxDuration.Duration != time.Hour {
 		t.Fatalf("unexpected defaults: %+v", s)
 	}
@@ -98,7 +101,9 @@ func TestAPIRejectsMalformedPolicies(t *testing.T) {
 		{"unknown placement provider", func(p *fpv1.FleetAccessPolicy) { p.Spec.Placement.Provider = "other" }, "provider"},
 		{"fail open", func(p *fpv1.FleetAccessPolicy) { p.Spec.Enforcement.FailMode = "Open" }, "failMode"},
 		{"unknown target kind", func(p *fpv1.FleetAccessPolicy) { p.Spec.Target.Ref.Kind = "Service" }, "kind"},
-		{"Gateway kind in the default group", func(p *fpv1.FleetAccessPolicy) { p.Spec.Target.Ref.Kind = "Gateway" }, "target.ref must be"},
+		{"Gateway kind in the agentic networking group", func(p *fpv1.FleetAccessPolicy) {
+			p.Spec.Target.Ref.Group, p.Spec.Target.Ref.Kind = "agentic.networking.x-k8s.io", "Gateway"
+		}, "target.ref must be"},
 		{"XBackend kind in the Gateway API group", func(p *fpv1.FleetAccessPolicy) { p.Spec.Target.Ref.Group = "gateway.networking.k8s.io" }, "target.ref must be"},
 		{"standing policy with six subjects", func(p *fpv1.FleetAccessPolicy) {
 			no := false
@@ -149,6 +154,12 @@ func TestAPIAcceptsValidTargetsAndSubjectCounts(t *testing.T) {
 		{"Gateway target", func(p *fpv1.FleetAccessPolicy) {
 			p.Spec.Target.Ref = fpv1.TargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "agentic-gateway"}
 		}},
+		{"Gateway target without a group", func(p *fpv1.FleetAccessPolicy) {
+			p.Spec.Target.Ref = fpv1.TargetRef{Kind: "Gateway", Name: "agentic-gateway"}
+		}},
+		{"maximum duration below the default duration's default", func(p *fpv1.FleetAccessPolicy) {
+			p.Spec.Lease = fpv1.LeaseSettings{MaxDuration: &metav1.Duration{Duration: 10 * time.Minute}}
+		}},
 		{"standing policy with five subjects", func(p *fpv1.FleetAccessPolicy) {
 			p.Spec.Lease.Required = &no
 			p.Spec.Subjects = subjects(5)
@@ -166,6 +177,7 @@ func TestAPIAcceptsValidTargetsAndSubjectCounts(t *testing.T) {
 			if err := k8s.Create(context.Background(), p); err != nil {
 				t.Fatalf("valid policy rejected: %v", err)
 			}
+			removeAfter(t, p)
 		})
 	}
 }
@@ -206,6 +218,7 @@ func TestAPILeaseValidationAndImmutability(t *testing.T) {
 	if err := k8s.Create(ctx, l); err != nil {
 		t.Fatal(err)
 	}
+	removeAfter(t, l)
 	l.Spec.Permissions = append(l.Spec.Permissions, fpv1.Permission{Tool: "read_secret"})
 	if err := k8s.Update(ctx, l); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("widening a lease must be rejected as immutable, got %v", err)
@@ -217,6 +230,48 @@ func TestAPILeaseValidationAndImmutability(t *testing.T) {
 	l.Spec.Duration = &d
 	if err := k8s.Update(ctx, l); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("extending a lease must be rejected as immutable, got %v", err)
+	}
+
+	// A Go client writes a duration applied as "30m" back as "30m0s". The
+	// spec is unchanged, so the update must be accepted.
+	applied := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "fleetpermit.github.io/v1alpha1", "kind": "ToolAccessLease",
+		"metadata": map[string]any{"namespace": "api-lease", "name": "applied-as-yaml"},
+		"spec": map[string]any{
+			"policyRef": map[string]any{"name": "p"}, "subject": map[string]any{"spiffeID": sreID},
+			"permissions": []any{map[string]any{"tool": "restart_workload"}}, "duration": "30m",
+			"clusters": []any{"cluster-east"}, "reason": "INC-7",
+		},
+	}}
+	if err := k8s.Create(ctx, applied); err != nil {
+		t.Fatal(err)
+	}
+	removeAfter(t, applied)
+	var typed fpv1.ToolAccessLease
+	if err := k8s.Get(ctx, clientKey(applied), &typed); err != nil {
+		t.Fatal(err)
+	}
+	typed.Labels = map[string]string{"team": "sre"}
+	if err := k8s.Update(ctx, &typed); err != nil {
+		t.Fatalf("an update that leaves the spec unchanged was rejected: %v", err)
+	}
+	for name, change := range map[string]func(*fpv1.ToolAccessLeaseSpec){
+		"duration":         func(s *fpv1.ToolAccessLeaseSpec) { s.Duration = &metav1.Duration{Duration: 31 * time.Minute} },
+		"removed duration": func(s *fpv1.ToolAccessLeaseSpec) { s.Duration = nil },
+		"clusters":         func(s *fpv1.ToolAccessLeaseSpec) { s.Clusters = []string{"cluster-west"} },
+		"removed clusters": func(s *fpv1.ToolAccessLeaseSpec) { s.Clusters = nil },
+		"reason":           func(s *fpv1.ToolAccessLeaseSpec) { s.Reason = "INC-8" },
+		"subject":          func(s *fpv1.ToolAccessLeaseSpec) { s.Subject.SPIFFEID = securityID },
+		"policy":           func(s *fpv1.ToolAccessLeaseSpec) { s.PolicyRef.Name = "q" },
+	} {
+		var cur fpv1.ToolAccessLease
+		if err := k8s.Get(ctx, clientKey(applied), &cur); err != nil {
+			t.Fatal(err)
+		}
+		change(&cur.Spec)
+		if err := k8s.Update(ctx, &cur); err == nil || !strings.Contains(err.Error(), "immutable") {
+			t.Errorf("changing the %s must be rejected as immutable, got %v", name, err)
+		}
 	}
 }
 
@@ -241,6 +296,7 @@ func TestSamplesAreValid(t *testing.T) {
 			if err := k8s.Create(context.Background(), u); err != nil {
 				t.Fatalf("sample %s rejected: %v", filepath.Base(f), err)
 			}
+			removeAfter(t, u)
 		})
 	}
 }

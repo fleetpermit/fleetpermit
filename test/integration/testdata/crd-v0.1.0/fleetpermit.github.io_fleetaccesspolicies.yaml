@@ -87,9 +87,9 @@ spec:
                 description: Lease controls time-bound activation.
                 properties:
                   defaultDuration:
-                    description: |-
-                      DefaultDuration is used when a lease does not request a duration.
-                      When unset, it is 15m, or maxDuration if that is shorter.
+                    default: 15m
+                    description: DefaultDuration is used when a lease does not request
+                      a duration.
                     type: string
                   maxDuration:
                     default: 1h
@@ -161,10 +161,8 @@ spec:
                 - placementRef
                 type: object
               subjects:
-                description: |-
-                  Subjects lists the workload identities this policy may grant to. A
-                  policy with lease.required=false may list at most 5: each standing
-                  subject needs two of the enforcement layer's 10 rules per policy.
+                description: Subjects lists the workload identities this policy may
+                  grant to.
                 items:
                   description: |-
                     Subject identifies a workload that may call tools.
@@ -215,10 +213,8 @@ spec:
                       attaches to.
                     properties:
                       group:
-                        description: |-
-                          Group of the target resource. When unset, it is the group that serves
-                          the kind: agentic.networking.x-k8s.io for XBackend and
-                          gateway.networking.k8s.io for Gateway.
+                        default: agentic.networking.x-k8s.io
+                        description: Group of the target resource.
                         enum:
                         - agentic.networking.x-k8s.io
                         - gateway.networking.k8s.io
@@ -238,13 +234,6 @@ spec:
                     required:
                     - name
                     type: object
-                    x-kubernetes-validations:
-                    - message: target.ref must be kind XBackend in group agentic.networking.x-k8s.io
-                        or kind Gateway in group gateway.networking.k8s.io
-                      rule: '!has(self.group) || !has(self.kind) || (self.group ==
-                        ''agentic.networking.x-k8s.io'' && self.kind == ''XBackend'')
-                        || (self.group == ''gateway.networking.k8s.io'' && self.kind
-                        == ''Gateway'')'
                 required:
                 - namespace
                 - ref
@@ -255,11 +244,6 @@ spec:
             - subjects
             - target
             type: object
-            x-kubernetes-validations:
-            - message: 'a policy with lease.required=false may list at most 5 subjects:
-                each needs two of the enforcement layer''s 10 rules'
-              rule: '!has(self.lease) || !has(self.lease.required) || self.lease.required
-                || size(self.subjects) <= 5'
           status:
             description: FleetAccessPolicyStatus is the observed state of a FleetAccessPolicy.
             properties:
@@ -273,11 +257,7 @@ spec:
                   kubectl output.
                 type: string
               clusters:
-                description: |-
-                  Clusters holds per-cluster detail, sorted by name: the selected
-                  clusters and those still being withdrawn from. It lists at most 512
-                  clusters; beyond that, clusters that are not ready are listed first,
-                  and the counts above stay exact.
+                description: Clusters holds per-cluster detail, sorted by name.
                 items:
                   description: ClusterStatus reports the state of one target cluster.
                   properties:
@@ -286,9 +266,8 @@ spec:
                         enforcement content.
                       type: string
                     grants:
-                      description: |-
-                        Grants is the number of grants, lease and standing, rendered for this
-                        cluster.
+                      description: Grants is the number of lease grants rendered for
+                        this cluster.
                       format: int32
                       type: integer
                     message:

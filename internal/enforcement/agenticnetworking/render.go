@@ -138,7 +138,7 @@ func (Renderer) Render(req enforcement.Request) (enforcement.Result, error) {
 		},
 		Spec: policySpec{
 			TargetRefs: []targetRef{{
-				Group: targetGroup(p.Spec.Target.Ref),
+				Group: p.Spec.Target.Ref.ResolvedGroup(),
 				Kind:  targetKind(p.Spec.Target.Ref),
 				Name:  p.Spec.Target.Ref.Name,
 			}},
@@ -255,13 +255,6 @@ func Expression(tools []string, expiresAt time.Time) string {
 		expr += " && request.time < timestamp('" + expiresAt.UTC().Format(time.RFC3339) + "')"
 	}
 	return expr
-}
-
-func targetGroup(r fpv1.TargetRef) string {
-	if r.Group == "" {
-		return Group
-	}
-	return r.Group
 }
 
 func targetKind(r fpv1.TargetRef) string {

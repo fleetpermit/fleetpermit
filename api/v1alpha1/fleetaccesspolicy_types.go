@@ -120,9 +120,10 @@ type TargetSpec struct {
 // TargetRef references a Gateway or an XBackend on the managed cluster.
 // +kubebuilder:validation:XValidation:rule="!has(self.group) || !has(self.kind) || (self.group == 'agentic.networking.x-k8s.io' && self.kind == 'XBackend') || (self.group == 'gateway.networking.k8s.io' && self.kind == 'Gateway')",message="target.ref must be kind XBackend in group agentic.networking.x-k8s.io or kind Gateway in group gateway.networking.k8s.io"
 type TargetRef struct {
-	// Group of the target resource.
+	// Group of the target resource. When unset, it is the group that serves
+	// the kind: agentic.networking.x-k8s.io for XBackend and
+	// gateway.networking.k8s.io for Gateway.
 	// +optional
-	// +kubebuilder:default=agentic.networking.x-k8s.io
 	// +kubebuilder:validation:Enum=agentic.networking.x-k8s.io;gateway.networking.k8s.io
 	Group string `json:"group,omitempty"`
 
@@ -152,8 +153,8 @@ type LeaseSettings struct {
 	Required *bool `json:"required,omitempty"`
 
 	// DefaultDuration is used when a lease does not request a duration.
+	// When unset, it is 15m, or maxDuration if that is shorter.
 	// +optional
-	// +kubebuilder:default="15m"
 	DefaultDuration *metav1.Duration `json:"defaultDuration,omitempty"`
 
 	// MaxDuration is the longest duration a lease may request.
@@ -195,7 +196,8 @@ type ClusterStatus struct {
 	// +optional
 	Message string `json:"message,omitempty"`
 
-	// Grants is the number of lease grants rendered for this cluster.
+	// Grants is the number of grants, lease and standing, rendered for this
+	// cluster.
 	// +optional
 	Grants int32 `json:"grants,omitempty"`
 
@@ -284,12 +286,33 @@ const (
 	DefaultMaxLeaseDuration = time.Hour
 )
 
-// DefaultDuration is the lease duration used when a lease requests none.
+// DefaultDuration is the lease duration used when a lease requests none:
+// the policy's defaultDuration, or DefaultLeaseDuration capped at the
+// policy's maximum.
 func (p *FleetAccessPolicy) DefaultDuration() time.Duration {
 	if d := p.Spec.Lease.DefaultDuration; d != nil {
 		return d.Duration
 	}
-	return DefaultLeaseDuration
+	return min(DefaultLeaseDuration, p.MaxDuration())
+}
+
+// API groups of the supported targets.
+const (
+	GroupAgenticNetworking = "agentic.networking.x-k8s.io"
+	GroupGatewayAPI        = "gateway.networking.k8s.io"
+)
+
+// ResolvedGroup returns the API group of the target: Group if set,
+// otherwise the group that serves Kind.
+func (r TargetRef) ResolvedGroup() string {
+	switch {
+	case r.Group != "":
+		return r.Group
+	case r.Kind == "Gateway":
+		return GroupGatewayAPI
+	default:
+		return GroupAgenticNetworking
+	}
 }
 
 // MaxDuration is the longest duration a lease may request.

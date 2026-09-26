@@ -149,7 +149,12 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: spec is immutable; create a new ToolAccessLease instead
-              rule: self == oldSelf
+              rule: 'self.policyRef == oldSelf.policyRef && self.subject == oldSelf.subject
+                && self.permissions == oldSelf.permissions && has(self.duration) ==
+                has(oldSelf.duration) && (!has(self.duration) || duration(self.duration)
+                == duration(oldSelf.duration)) && (has(self.clusters) ? self.clusters
+                : []) == (has(oldSelf.clusters) ? oldSelf.clusters : []) && (has(self.reason)
+                ? self.reason : '''') == (has(oldSelf.reason) ? oldSelf.reason : '''')'
           status:
             description: ToolAccessLeaseStatus is the observed state of a lease.
             properties:

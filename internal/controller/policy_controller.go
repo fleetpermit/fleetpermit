@@ -67,6 +67,9 @@ const (
 	failureRequeue = time.Second
 	// maxStatusClusters is the API's limit on status.clusters.
 	maxStatusClusters = 512
+	// policyGracePeriod is how long a lease created before its policy waits
+	// for the policy, as Pending, before it is denied.
+	policyGracePeriod = 5 * time.Minute
 )
 
 // Cluster states reported by the controller itself.
@@ -110,7 +113,7 @@ type PolicyReconciler struct {
 	failures map[types.NamespacedName]int
 }
 
-// +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=fleetpermit.github.io,resources=toolaccessleases,verbs=get;list;watch
 // +kubebuilder:rbac:groups=fleetpermit.github.io,resources=fleetaccesspolicies/status;toolaccessleases/status,verbs=get;patch
 // +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=placements;placementdecisions;managedclusters,verbs=get;list;watch
@@ -139,7 +142,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	var policy fpv1.FleetAccessPolicy
 	if err := r.Get(ctx, req.NamespacedName, &policy); err != nil {
 		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, r.reconcileMissing(ctx, req.NamespacedName)
+			return r.reconcileMissing(ctx, req.NamespacedName)
 		}
 		return ctrl.Result{}, err
 	}
@@ -147,12 +150,23 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	if !policy.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, r.finalize(ctx, &policy)
 	}
-	if controllerutil.AddFinalizer(&policy, Finalizer) {
-		if err := r.Update(ctx, &policy); err != nil {
+	if !controllerutil.ContainsFinalizer(&policy, Finalizer) {
+		if err := r.patchFinalizer(ctx, &policy, controllerutil.AddFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 	return r.reconcilePolicy(ctx, &policy)
+}
+
+// patchFinalizer adds or removes FleetPermit's finalizer with a merge patch
+// that changes nothing else. An Update would write the whole object back and
+// re-encode its durations ("15m" as "15m0s"), so the API server would
+// validate a spec that an earlier CRD version accepted against rules added
+// since, and could refuse the change, leaving the policy impossible to delete.
+func (r *PolicyReconciler) patchFinalizer(ctx context.Context, p *fpv1.FleetAccessPolicy, change func(client.Object, string) bool) error {
+	base := p.DeepCopy()
+	change(p, Finalizer)
+	return r.Patch(ctx, p, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 // snapshot captures everything decided in one reconcile.
@@ -171,6 +185,9 @@ type snapshot struct {
 	// delivering holds clusters whose previous delivery is still being
 	// deleted; they are delivered to once it is gone.
 	delivering map[string]string
+	// unavailable holds clusters whose delivery waits for the cluster to
+	// reconnect.
+	unavailable map[string]string
 	// standingDropped lists the clusters on which a standing grant did not
 	// fit the enforcement layer's rule limit.
 	standingDropped []string
@@ -188,6 +205,7 @@ func (r *PolicyReconciler) reconcilePolicy(ctx context.Context, p *fpv1.FleetAcc
 		renderedOn:    map[types.UID][]string{},
 		applyFailures: map[string]string{},
 		delivering:    map[string]string{},
+		unavailable:   map[string]string{},
 	}
 
 	// 1. Resolve placement. A missing placement is definitive: withdraw
@@ -276,10 +294,15 @@ func (r *PolicyReconciler) reconcilePolicy(ctx context.Context, p *fpv1.FleetAcc
 				s.standingDropped = append(s.standingDropped, c)
 			}
 		}
-		if err := r.Placement.Apply(ctx, p, c, res); errors.Is(err, placement.ErrStillDeleting) {
+		switch err := r.Placement.Apply(ctx, p, c, res); {
+		case errors.Is(err, placement.ErrStillDeleting):
 			// Not a failure: delivery resumes once the deletion completes.
 			s.delivering[c] = err.Error()
-		} else if err != nil {
+		case errors.Is(err, placement.ErrClusterUnavailable):
+			// Nothing changes until the cluster reconnects, which the
+			// ManagedCluster watch reports.
+			s.unavailable[c] = err.Error()
+		case err != nil:
 			s.applyFailures[c] = err.Error()
 			logger.Error(err, "delivering grants failed", "cluster", c)
 		}
@@ -300,6 +323,12 @@ func (r *PolicyReconciler) reconcilePolicy(ctx context.Context, p *fpv1.FleetAcc
 		}
 	}
 	s.observed = observed
+	// An earlier policy with this namespace and name, deleted without its
+	// finalizer, may have left deliveries behind, including on clusters this
+	// policy is not placed on.
+	if err := r.Placement.Withdraw(ctx, key, p.UID); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// 6. Report.
 	requeue, err := r.updateLeaseStatuses(ctx, p, &s)
@@ -329,11 +358,18 @@ func (s *snapshot) clusterInSync(c string) (bool, string, string) {
 	if msg, failed := s.applyFailures[c]; failed {
 		return false, reasonDeliveryFailed, msg
 	}
-	if msg, waiting := s.delivering[c]; waiting {
-		return false, reasonDelivering, msg
+	if msg, down := s.unavailable[c]; down {
+		return false, ocm.ReasonClusterUnavailable, msg
 	}
 	res, desired := s.results[c]
 	obs, present := s.observed[c]
+	if present && obs.Reason == ocm.ReasonClusterUnavailable {
+		// Nothing changes on the cluster until it reconnects.
+		return false, obs.Reason, obs.Message
+	}
+	if msg, waiting := s.delivering[c]; waiting {
+		return false, reasonDelivering, msg
+	}
 	wantContent := desired && len(res.Objects) > 0
 	switch {
 	case !wantContent && !present:
@@ -366,6 +402,9 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 		wasExpired := hasTrue(l.Status.Conditions, fpv1.ConditionExpired)
 		wasReady := hasTrue(l.Status.Conditions, fpv1.ConditionReady)
 		gen := l.Generation
+		// Metrics are recorded once the status is written, so that a lease is
+		// not counted twice when the write fails and the reconcile is retried.
+		var record []func()
 
 		if !d.ExpiresAt.IsZero() {
 			t := metav1Time(d.ExpiresAt)
@@ -389,7 +428,8 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 			// phase is usually already Denied or Expired by then, because the
 			// withdrawal takes more than one reconcile.
 			if len(pending) == 0 && len(st.Clusters) > 0 {
-				metrics.LeaseRevocation.Observe(s.now.Sub(revocationStart(l, d, s.now)).Seconds())
+				took := s.now.Sub(revocationStart(l, d, s.now)).Seconds()
+				record = append(record, func() { metrics.LeaseRevocation.Observe(took) })
 			}
 			st.Phase = phase
 			st.Clusters = pending
@@ -407,17 +447,26 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 			}
 			setCond(&st.Conditions, gen, fpv1.ConditionDegraded, false, reason, "")
 			if d.Denied && !wasDenied {
-				metrics.DeniedLeases.WithLabelValues(d.Reason).Inc()
+				record = append(record, metrics.DeniedLeases.WithLabelValues(d.Reason).Inc)
 			}
 			if d.Expired && !wasExpired {
-				metrics.ExpiredLeases.Inc()
+				record = append(record, metrics.ExpiredLeases.Inc)
 			}
 		default:
 			setCond(&st.Conditions, gen, fpv1.ConditionDenied, false, fpv1.ReasonAllowed, "lease satisfied the policy")
 			setCond(&st.Conditions, gen, fpv1.ConditionExpired, false, fpv1.ReasonNotExpired, "expires at "+d.ExpiresAt.Format(time.RFC3339))
 			rendered := sortedCopy(s.renderedOn[l.UID])
 			dropped := sortedCopy(s.droppedOn[l.UID])
+			// A cluster that left the placement holds the grant until its
+			// delivery is gone, so it stays listed until then. It does not
+			// count towards Ready.
 			st.Clusters = rendered
+			for _, c := range l.Status.Clusters {
+				if _, held := s.observed[c]; held && !containsString(s.placed, c) {
+					st.Clusters = append(st.Clusters, c)
+				}
+			}
+			sort.Strings(st.Clusters)
 			if until := d.ExpiresAt.Sub(s.now); until > 0 && (next == 0 || until < next) {
 				next = until + 500*time.Millisecond
 			}
@@ -467,7 +516,8 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 			if ready {
 				setCond(&st.Conditions, gen, fpv1.ConditionReady, true, fpv1.ReasonLeaseActive, msg)
 				if !wasReady && !seenBefore[l.UID] {
-					metrics.PolicyPropagation.Observe(s.now.Sub(l.CreationTimestamp.Time).Seconds())
+					took := s.now.Sub(l.CreationTimestamp.Time).Seconds()
+					record = append(record, func() { metrics.PolicyPropagation.Observe(took) })
 				}
 			} else {
 				setCond(&st.Conditions, gen, fpv1.ConditionReady, false, fpv1.ReasonRollingOut, msg)
@@ -491,13 +541,12 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 		if err := r.patchLeaseStatus(ctx, l, st); err != nil {
 			return 0, err
 		}
-		if st.Phase == fpv1.LeaseActive || len(st.Clusters) > 0 {
-			if next == 0 || next > progressRequeue {
-				if !hasTrue(st.Conditions, fpv1.ConditionReady) || st.Phase != fpv1.LeaseActive {
-					next = progressRequeue
-				}
-			}
+		for _, f := range record {
+			f()
 		}
+		// A lease waiting for clusters needs no requeue of its own: those
+		// clusters make the policy progressing. Failed clusters wait for
+		// their own events or the delivery backoff.
 	}
 	r.setReadyLeases(key, seenNow)
 	authorized := 0
@@ -540,11 +589,16 @@ func (r *PolicyReconciler) updatePolicyStatus(ctx context.Context, p *fpv1.Fleet
 		if !containsString(s.placed, c) {
 			_, reason, msg := s.clusterInSync(c)
 			st.Clusters = append(st.Clusters, fpv1.ClusterStatus{Name: c, Reason: reason, Message: msg})
-			waiting = append(waiting, c)
+			if deliveryFailed(reason) {
+				failed = append(failed, c)
+			} else {
+				waiting = append(waiting, c)
+			}
 		}
 	}
 	sort.Slice(st.Clusters, func(i, j int) bool { return st.Clusters[i].Name < st.Clusters[j].Name })
 	sort.Strings(waiting)
+	sort.Strings(failed)
 	truncated := ""
 	if len(st.Clusters) > maxStatusClusters {
 		truncated = fmt.Sprintf("; status.clusters lists %d of %d clusters, those not ready first", maxStatusClusters, len(st.Clusters))
@@ -606,8 +660,8 @@ func (r *PolicyReconciler) finalize(ctx context.Context, p *fpv1.FleetAccessPoli
 		}
 	}
 	r.forget(types.NamespacedName{Namespace: p.Namespace, Name: p.Name})
-	if controllerutil.RemoveFinalizer(p, Finalizer) {
-		return r.Update(ctx, p)
+	if controllerutil.ContainsFinalizer(p, Finalizer) {
+		return r.patchFinalizer(ctx, p, controllerutil.RemoveFinalizer)
 	}
 	return nil
 }
@@ -615,7 +669,7 @@ func (r *PolicyReconciler) finalize(ctx context.Context, p *fpv1.FleetAccessPoli
 // reconcileMissing handles a policy that does not exist: it withdraws what
 // was delivered for it (its finalizer may have been removed by hand) and
 // updates the leases that reference it.
-func (r *PolicyReconciler) reconcileMissing(ctx context.Context, key types.NamespacedName) error {
+func (r *PolicyReconciler) reconcileMissing(ctx context.Context, key types.NamespacedName) (ctrl.Result, error) {
 	// The cache can lag behind the API server: confirm that the policy is
 	// gone before withdrawing its deliveries or denying its leases. If it
 	// exists, its watch event reconciles it once the cache catches up.
@@ -624,50 +678,75 @@ func (r *PolicyReconciler) reconcileMissing(ctx context.Context, key types.Names
 		reader = r.Client
 	}
 	if err := reader.Get(ctx, key, &fpv1.FleetAccessPolicy{}); !apierrors.IsNotFound(err) {
-		return err
+		return ctrl.Result{}, err
 	}
 	r.forget(key)
-	if err := r.Placement.Withdraw(ctx, key); err != nil {
-		return err
+	if err := r.Placement.Withdraw(ctx, key, ""); err != nil {
+		return ctrl.Result{}, err
 	}
-	return r.updateOrphanLeases(ctx, key)
+	next, err := r.updateOrphanLeases(ctx, key)
+	return ctrl.Result{RequeueAfter: next}, err
 }
 
-// updateOrphanLeases updates the leases of a policy that does not exist. A
-// lease that was never evaluated against the policy stays Pending, because
-// GitOps tools may apply a lease before its policy, and activates once the
-// policy exists. A lease that was evaluated is denied, or marked Expired if
-// its recorded expiry has passed. Denied and Expired remain terminal.
-func (r *PolicyReconciler) updateOrphanLeases(ctx context.Context, key types.NamespacedName) error {
+// updateOrphanLeases updates the leases of a policy that does not exist and
+// returns when to check them again. A lease that was never evaluated against
+// the policy stays Pending for policyGracePeriod after its creation, because
+// GitOps tools may apply a lease before its policy, and activates if the
+// policy appears in that time; it expires if its requested duration runs out
+// first, and is denied when the grace period ends. A lease that was evaluated
+// is denied, or marked Expired if its recorded expiry has passed. Denied and
+// Expired remain terminal.
+func (r *PolicyReconciler) updateOrphanLeases(ctx context.Context, key types.NamespacedName) (time.Duration, error) {
 	var list fpv1.ToolAccessLeaseList
 	if err := r.List(ctx, &list, client.InNamespace(key.Namespace), client.MatchingFields{PolicyIndexField: key.Name}); err != nil {
-		return err
+		return 0, err
 	}
 	now := r.now()
+	var next time.Duration
 	for i := range list.Items {
 		l := &list.Items[i]
 		d := sticky(l, lease.Evaluate(nil, l, nil, now))
 		wasDenied := hasTrue(l.Status.Conditions, fpv1.ConditionDenied)
+		waiting := !wasDenied && neverEvaluated(l)
+		graceEnds := l.CreationTimestamp.Add(policyGracePeriod)
+		var requestedEnd time.Time
+		if l.Spec.Duration != nil {
+			requestedEnd = l.CreationTimestamp.Add(l.Spec.Duration.Duration).UTC().Truncate(time.Second)
+		}
 		st := l.Status.DeepCopy()
 		st.ObservedGeneration = l.Generation
 		st.Clusters = nil
 		st.ClusterCount = 0
+		var record []func()
+		expire := func(at time.Time) {
+			d.Reason, d.Message = fpv1.ReasonLeaseExpired, "lease expired at "+at.UTC().Format(time.RFC3339)
+			st.Phase = fpv1.LeaseExpired
+			setCond(&st.Conditions, l.Generation, fpv1.ConditionExpired, true, d.Reason, d.Message)
+			record = append(record, metrics.ExpiredLeases.Inc)
+		}
 		switch {
 		case d.Expired:
 			st.Phase = fpv1.LeaseExpired
 			setCond(&st.Conditions, l.Generation, fpv1.ConditionExpired, true, d.Reason, d.Message)
 		case !wasDenied && st.ExpiresAt != nil && !now.Before(st.ExpiresAt.Time):
 			// The lease expired before its policy disappeared.
-			d.Reason, d.Message = fpv1.ReasonLeaseExpired, "lease expired at "+st.ExpiresAt.UTC().Format(time.RFC3339)
-			metrics.ExpiredLeases.Inc()
-			st.Phase = fpv1.LeaseExpired
-			setCond(&st.Conditions, l.Generation, fpv1.ConditionExpired, true, d.Reason, d.Message)
-		case !wasDenied && neverEvaluated(l):
-			d.Message += "; the lease activates once the policy exists"
+			expire(st.ExpiresAt.Time)
+		case waiting && !requestedEnd.IsZero() && !now.Before(requestedEnd):
+			// Its requested duration ran out while it waited for the policy.
+			expire(requestedEnd)
+		case waiting && now.Before(graceEnds):
+			d.Message += "; the lease activates if the policy is created before " + graceEnds.UTC().Format(time.RFC3339)
 			st.Phase = fpv1.LeasePending
+			check := graceEnds
+			if !requestedEnd.IsZero() && requestedEnd.Before(check) {
+				check = requestedEnd
+			}
+			if until := check.Sub(now) + 500*time.Millisecond; next == 0 || until < next {
+				next = until
+			}
 		default:
 			if !wasDenied {
-				metrics.DeniedLeases.WithLabelValues(d.Reason).Inc()
+				record = append(record, metrics.DeniedLeases.WithLabelValues(d.Reason).Inc)
 			}
 			st.Phase = fpv1.LeaseDenied
 			setCond(&st.Conditions, l.Generation, fpv1.ConditionDenied, true, d.Reason, d.Message)
@@ -675,10 +754,13 @@ func (r *PolicyReconciler) updateOrphanLeases(ctx context.Context, key types.Nam
 		setCond(&st.Conditions, l.Generation, fpv1.ConditionReady, false, d.Reason, d.Message)
 		setCond(&st.Conditions, l.Generation, fpv1.ConditionProgressing, false, d.Reason, "")
 		if err := r.patchLeaseStatus(ctx, l, st); err != nil {
-			return err
+			return 0, err
+		}
+		for _, f := range record {
+			f()
 		}
 	}
-	return nil
+	return next, nil
 }
 
 // neverEvaluated reports whether a lease has never been evaluated against an

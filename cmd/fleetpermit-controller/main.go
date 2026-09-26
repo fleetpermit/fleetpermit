@@ -131,8 +131,8 @@ func main() {
 	}
 
 	ctx := ctrl.SetupSignalHandler()
-	if err := controller.IndexLeases(ctx, mgr); err != nil {
-		log.Error(err, "unable to index leases")
+	if err := controller.IndexFields(ctx, mgr); err != nil {
+		log.Error(err, "unable to register field indexes")
 		exit(1)
 	}
 	r := &controller.PolicyReconciler{

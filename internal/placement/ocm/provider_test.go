@@ -18,6 +18,7 @@ package ocm
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sort"
 	"strconv"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -38,6 +40,7 @@ import (
 
 	fpv1 "github.com/fleetpermit/fleetpermit/api/v1alpha1"
 	"github.com/fleetpermit/fleetpermit/internal/enforcement"
+	"github.com/fleetpermit/fleetpermit/internal/placement"
 )
 
 func work(gen int64, applied *metav1.ConditionStatus, appliedGen int64, feedback ...string) *workv1.ManifestWork {
@@ -216,7 +219,7 @@ func fakeProvider(t *testing.T, objs ...client.Object) (*Provider, client.Client
 	if err := clusterv1beta1.Install(scheme); err != nil {
 		t.Fatal(err)
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithIndex(&workv1.ManifestWork{}, IndexPolicy, workPolicy).WithObjects(objs...).Build()
 	return &Provider{Client: c}, c
 }
 
@@ -323,6 +326,11 @@ func TestApplyRestoresTamperedWorkSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := types.NamespacedName{Namespace: "cluster-east", Name: WorkName(p)}
+	var delivered workv1.ManifestWork
+	if err := c.Get(ctx, key, &delivered); err != nil {
+		t.Fatal(err)
+	}
+	want := &delivered.Spec
 	cases := map[string]func(*workv1.ManifestWork){
 		"orphaning delete option": func(w *workv1.ManifestWork) {
 			w.Spec.DeleteOption = &workv1.DeleteOption{PropagationPolicy: workv1.DeletePropagationPolicyTypeOrphan}
@@ -335,6 +343,28 @@ func TestApplyRestoresTamperedWorkSpec(t *testing.T) {
 				Type: workv1.ExecutorSubjectTypeServiceAccount, ServiceAccount: &workv1.ManifestWorkSubjectServiceAccount{Namespace: "kube-system", Name: "powerful"},
 			}}
 		},
+		// Fields FleetPermit leaves unset.
+		"ignored fields": func(w *workv1.ManifestWork) {
+			w.Spec.ManifestConfigs[0].UpdateStrategy.ServerSideApply.IgnoreFields = []workv1.IgnoreField{{
+				Condition: workv1.IgnoreFieldsConditionOnSpokeChange, JSONPaths: []string{".data"},
+			}}
+		},
+		"condition rules": func(w *workv1.ManifestWork) {
+			w.Spec.ManifestConfigs[0].ConditionRules = []workv1.ConditionRule{{Condition: "Complete", Type: workv1.WellKnownConditionsType}}
+		},
+		"extra manifest config": func(w *workv1.ManifestWork) {
+			w.Spec.ManifestConfigs = append(w.Spec.ManifestConfigs, workv1.ManifestConfigOption{
+				ResourceIdentifier: workv1.ResourceIdentifier{Resource: "configmaps", Namespace: "n", Name: "y"},
+				UpdateStrategy:     &workv1.UpdateStrategy{Type: workv1.UpdateStrategyTypeReadOnly},
+			})
+		},
+		"deletion TTL": func(w *workv1.ManifestWork) {
+			ttl := int64(1)
+			w.Spec.DeleteOption.TTLSecondsAfterFinished = &ttl
+		},
+		"selective orphaning": func(w *workv1.ManifestWork) {
+			w.Spec.DeleteOption.SelectivelyOrphan = &workv1.SelectivelyOrphan{OrphaningRules: []workv1.OrphaningRule{{Resource: "configmaps", Namespace: "n", Name: "x"}}}
+		},
 	}
 	for name, tamper := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -342,7 +372,6 @@ func TestApplyRestoresTamperedWorkSpec(t *testing.T) {
 			if err := c.Get(ctx, key, &w); err != nil {
 				t.Fatal(err)
 			}
-			want := w.Spec.DeepCopy()
 			tamper(&w)
 			if err := c.Update(ctx, &w); err != nil {
 				t.Fatal(err)
@@ -389,11 +418,89 @@ func TestWithdrawDeletesOnlyTheMissingPolicysWorks(t *testing.T) {
 		annotated("cluster-east", "fleetpermit-other-1", "policy-b", "team-a/other"),
 		annotated("cluster-east", "fleetpermit-sre-2", "policy-c", "team-b/sre"),
 	)
-	if err := o.Withdraw(context.Background(), types.NamespacedName{Namespace: "team-a", Name: "sre"}); err != nil {
+	if err := o.Withdraw(context.Background(), types.NamespacedName{Namespace: "team-a", Name: "sre"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"cluster-east/fleetpermit-other-1", "cluster-east/fleetpermit-sre-2"}
 	if got := workNames(t, c); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("remaining works:\n got %v\nwant %v", got, want)
+	}
+}
+
+func applyResult() enforcement.Result {
+	obj := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]any{"name": "x", "namespace": "n"}}}
+	return enforcement.Result{Objects: []*unstructured.Unstructured{obj}, Digest: "sha256:1",
+		Resources: []enforcement.Resource{{Resource: "configmaps", Namespace: "n", Name: "x"}}}
+}
+
+// TestApplyReplacesTheWorkOfAnEarlierPolicyWithTheSameName covers a policy
+// deleted without its finalizer and created again under the same name: the
+// earlier policy's ManifestWork is deleted so that the new one can be
+// delivered, and delivery is reported as in progress. A ManifestWork of any
+// other owner is still refused.
+func TestApplyReplacesTheWorkOfAnEarlierPolicyWithTheSameName(t *testing.T) {
+	ctx := context.Background()
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-new"}}
+	earlier := ownedWork("cluster-east", WorkName(p), "policy-old")
+	earlier.Annotations = map[string]string{AnnotationPolicy: "team-a/sre"}
+	unrelated := ownedWork("cluster-west", WorkName(p), "policy-other")
+	unrelated.Annotations = map[string]string{AnnotationPolicy: "team-b/sre"}
+	o, c := fakeProvider(t, earlier, unrelated)
+
+	if err := o.Apply(ctx, p, "cluster-east", applyResult()); !errors.Is(err, placement.ErrStillDeleting) {
+		t.Fatalf("Apply over an earlier policy's work returned %v, want ErrStillDeleting", err)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(earlier), &workv1.ManifestWork{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("the earlier policy's work was not deleted: %v", err)
+	}
+	if err := o.Apply(ctx, p, "cluster-west", applyResult()); err == nil || errors.Is(err, placement.ErrStillDeleting) ||
+		!strings.Contains(err.Error(), "not owned by this policy") {
+		t.Fatalf("Apply over another policy's work returned %v, want a refusal", err)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(unrelated), &workv1.ManifestWork{}); err != nil {
+		t.Fatalf("another policy's work was touched: %v", err)
+	}
+}
+
+// TestApplyReportsAWorkBeingDeletedAsInProgress checks that a ManifestWork
+// that is being deleted is reported as such whoever owned it, so deleting and
+// re-creating a policy shows delivery in progress, not a failure.
+func TestApplyReportsAWorkBeingDeletedAsInProgress(t *testing.T) {
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-new"}}
+	deleting := ownedWork("cluster-east", WorkName(p), "policy-old")
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	deleting.Finalizers = []string{workv1.ManifestWorkFinalizer}
+	o, _ := fakeProvider(t, deleting)
+	if err := o.Apply(context.Background(), p, "cluster-east", applyResult()); !errors.Is(err, placement.ErrStillDeleting) {
+		t.Fatalf("Apply returned %v, want ErrStillDeleting", err)
+	}
+
+	// Only the work agent completes the deletion: on a cluster that is not
+	// available, delivery waits for it to reconnect.
+	offline := &clusterv1.ManagedCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-east"}}
+	offline.Status.Conditions = []metav1.Condition{{Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionUnknown, Reason: "Lost"}}
+	o, _ = fakeProvider(t, deleting, offline)
+	if err := o.Apply(context.Background(), p, "cluster-east", applyResult()); !errors.Is(err, placement.ErrClusterUnavailable) {
+		t.Fatalf("Apply on an unavailable cluster returned %v, want ErrClusterUnavailable", err)
+	}
+}
+
+func TestWithdrawKeepsTheCurrentPolicysWorks(t *testing.T) {
+	annotated := func(cluster, name, owner string) *workv1.ManifestWork {
+		w := ownedWork(cluster, name, owner)
+		w.Annotations = map[string]string{AnnotationPolicy: "team-a/sre"}
+		return w
+	}
+	o, c := fakeProvider(t,
+		annotated("cluster-east", "fleetpermit-sre-1", "policy-new"),
+		annotated("cluster-west", "fleetpermit-sre-1", "policy-old"),
+		annotated("cluster-edge", "fleetpermit-sre-1", "policy-old"),
+	)
+	if err := o.Withdraw(context.Background(), types.NamespacedName{Namespace: "team-a", Name: "sre"}, "policy-new"); err != nil {
+		t.Fatal(err)
+	}
+	if got := workNames(t, c); strings.Join(got, " ") != "cluster-east/fleetpermit-sre-1" {
+		t.Fatalf("only the current policy's work must remain, got %v", got)
 	}
 }

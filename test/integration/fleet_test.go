@@ -69,6 +69,7 @@ func newFleet(t testing.TB, ns string, clusters []string, selected []string) *fl
 		setClusterAvailable(t, c, true)
 	}
 	f := &fleet{ns: ns, placement: "production-clusters", clusters: clusters}
+	t.Cleanup(func() { f.cleanUp(t) })
 	pl := &clusterv1beta1.Placement{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: f.placement}}
 	if err := k8s.Create(ctx, pl); err != nil {
 		t.Fatal(err)
@@ -85,6 +86,42 @@ func newFleet(t testing.TB, ns string, clusters []string, selected []string) *fl
 	}
 	f.selectClusters(t, selected...)
 	return f
+}
+
+// cleanUp removes what a fleet test created, in the fleet's namespace and
+// its clusters' namespaces, after the test's controller has stopped. The
+// namespaces themselves stay: envtest never finishes deleting a namespace.
+func (f *fleet) cleanUp(t testing.TB) {
+	t.Helper()
+	ctx := context.Background()
+	lists := []client.ObjectList{
+		&fpv1.ToolAccessLeaseList{}, &fpv1.FleetAccessPolicyList{},
+		&clusterv1beta1.PlacementDecisionList{}, &clusterv1beta1.PlacementList{},
+	}
+	for _, list := range lists {
+		if err := k8s.List(ctx, list, client.InNamespace(f.ns)); err != nil {
+			t.Error(err)
+			continue
+		}
+		_ = meta.EachListItem(list, func(o runtime.Object) error {
+			remove(t, o.(client.Object))
+			return nil
+		})
+	}
+	// One list for every cluster: a list per cluster namespace is slow with
+	// hundreds of clusters.
+	var works workv1.ManifestWorkList
+	if err := k8s.List(ctx, &works); err != nil {
+		t.Error(err)
+	}
+	for i := range works.Items {
+		if slices.Contains(f.clusters, works.Items[i].Namespace) {
+			remove(t, &works.Items[i])
+		}
+	}
+	for _, c := range f.clusters {
+		remove(t, &clusterv1.ManagedCluster{ObjectMeta: metav1.ObjectMeta{Name: c}})
+	}
 }
 
 func setClusterAvailable(t testing.TB, name string, available bool) {
@@ -1527,7 +1564,7 @@ func TestTamperedWorkSpecIsRestored(t *testing.T) {
 		}}
 	})
 	var restored workv1.ManifestWork
-	eventually(t, 10*time.Second, "the work spec to be restored", func() error {
+	restoredSpec := func() error {
 		restored = works(t, p)["sd-east"]
 		s := restored.Spec
 		if s.DeleteOption == nil || s.DeleteOption.PropagationPolicy != workv1.DeletePropagationPolicyTypeForeground {
@@ -1539,8 +1576,37 @@ func TestTamperedWorkSpecIsRestored(t *testing.T) {
 		if s.Executor != nil {
 			return fmt.Errorf("executor %+v", s.Executor)
 		}
+		if len(s.ManifestConfigs) != 1 || len(s.ManifestConfigs[0].ConditionRules) != 0 ||
+			len(s.ManifestConfigs[0].UpdateStrategy.ServerSideApply.IgnoreFields) != 0 {
+			return fmt.Errorf("manifest configs %+v", s.ManifestConfigs)
+		}
+		if s.DeleteOption.TTLSecondsAfterFinished != nil || s.DeleteOption.SelectivelyOrphan != nil {
+			return fmt.Errorf("delete option %+v", s.DeleteOption)
+		}
 		return nil
+	}
+	eventually(t, 10*time.Second, "the work spec to be restored", restoredSpec)
+
+	// Fields FleetPermit leaves unset: ignored fields keep edits made on the
+	// managed cluster, a TTL or selective orphaning changes deletion, extra
+	// configurations and condition rules change what the agent does.
+	ttl := int64(1)
+	updateWork(t, &w, func(w *workv1.ManifestWork) {
+		mc := &w.Spec.ManifestConfigs[0]
+		mc.UpdateStrategy.ServerSideApply.IgnoreFields = []workv1.IgnoreField{{
+			Condition: workv1.IgnoreFieldsConditionOnSpokeChange, JSONPaths: []string{".spec.rules"},
+		}}
+		mc.ConditionRules = []workv1.ConditionRule{{Condition: "Complete", Type: workv1.WellKnownConditionsType}}
+		w.Spec.DeleteOption.TTLSecondsAfterFinished = &ttl
+		w.Spec.DeleteOption.SelectivelyOrphan = &workv1.SelectivelyOrphan{OrphaningRules: []workv1.OrphaningRule{{
+			Group: "agentic.networking.x-k8s.io", Resource: "xaccesspolicies", Namespace: "mcp-tools", Name: "anything",
+		}}}
+		w.Spec.ManifestConfigs = append(w.Spec.ManifestConfigs, workv1.ManifestConfigOption{
+			ResourceIdentifier: workv1.ResourceIdentifier{Group: "agentic.networking.x-k8s.io", Resource: "xaccesspolicies", Namespace: "mcp-tools", Name: "other"},
+			UpdateStrategy:     &workv1.UpdateStrategy{Type: workv1.UpdateStrategyTypeReadOnly},
+		})
 	})
+	eventually(t, 10*time.Second, "the unset work spec fields to be removed", restoredSpec)
 	poke(t, p)
 	time.Sleep(2 * time.Second)
 	if after := works(t, p)["sd-east"]; after.Generation != restored.Generation {
@@ -1720,4 +1786,221 @@ func TestPermanentDeliveryFailureBacksOff(t *testing.T) {
 	if n := reconciles() - before; n > 5 {
 		t.Fatalf("%v reconciles in 10s for a failure that persists; want at most 5", n)
 	}
+}
+
+// worksOf returns every ManifestWork labelled with a policy UID, including
+// works that are being deleted.
+func worksOf(t testing.TB, uid types.UID) []workv1.ManifestWork {
+	t.Helper()
+	var list workv1.ManifestWorkList
+	if err := k8s.List(context.Background(), &list, client.MatchingLabels{ocm.LabelPolicyUID: string(uid)}); err != nil {
+		t.Fatal(err)
+	}
+	return list.Items
+}
+
+// TestPolicyRecreatedUnderTheSameNameReplacesTheEarlierWorks covers a
+// policy deleted without FleetPermit's cleanup (its finalizer removed by hand)
+// and created again under the same name before the controller saw it gone.
+// The earlier policy's works must not stay: on a cluster the new policy is
+// placed on, the new delivery replaces it; on one it is not, it is deleted.
+func TestPolicyRecreatedUnderTheSameNameReplacesTheEarlierWorks(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer func() { stop() }()
+
+	f := newFleet(t, "recreated", []string{"re-east", "re-west"}, []string{"re-east", "re-west"})
+	no := false
+	standing := func(subjects ...string) *fpv1.FleetAccessPolicy {
+		return f.policy("standing", func(p *fpv1.FleetAccessPolicy) {
+			p.Spec.Lease.Required = &no
+			p.Spec.Subjects = nil
+			for _, s := range subjects {
+				p.Spec.Subjects = append(p.Spec.Subjects, fpv1.Subject{SPIFFEID: s})
+			}
+		})
+	}
+	earlier := standing(sreID, securityID)
+	if err := k8s.Create(ctx, earlier); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "the earlier policy on both clusters", func() error {
+		ackWorks(t)
+		if s := getPolicy(t, earlier).Status.ClusterSummary; s != "2/2" {
+			return fmt.Errorf("clusters %q", s)
+		}
+		return nil
+	})
+	earlierUID := getPolicy(t, earlier).UID
+
+	// While the controller is down: remove the finalizer, delete the policy,
+	// narrow the placement to re-east and create the policy again with only
+	// one subject.
+	stop()
+	updatePolicy(t, earlier, func(cur *fpv1.FleetAccessPolicy) { controllerutil.RemoveFinalizer(cur, controller.Finalizer) })
+	if err := k8s.Delete(ctx, earlier); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "the earlier policy to be gone", func() error {
+		if err := k8s.Get(ctx, clientKey(earlier), &fpv1.FleetAccessPolicy{}); !apierrors.IsNotFound(err) {
+			return fmt.Errorf("still present: %v", err)
+		}
+		return nil
+	})
+	f.selectClusters(t, "re-east")
+	later := standing(sreID)
+	if err := k8s.Create(ctx, later); err != nil {
+		t.Fatal(err)
+	}
+
+	stop = startController(t, clock.Now)
+	eventually(t, 20*time.Second, "the earlier policy's works to be gone and the new one delivered", func() error {
+		ackWorks(t)
+		if left := worksOf(t, earlierUID); len(left) != 0 {
+			return fmt.Errorf("%d works of the earlier policy remain, the first on %s", len(left), left[0].Namespace)
+		}
+		pol := getPolicy(t, later)
+		if pol.Status.ClusterSummary != "1/1" || !meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionReady) {
+			return fmt.Errorf("new policy status %+v", pol.Status)
+		}
+		w, ok := works(t, pol)["re-east"]
+		if !ok || strings.Contains(manifestJSON(w), securityID) {
+			return fmt.Errorf("re-east must hold only the new policy's grants")
+		}
+		return nil
+	})
+}
+
+// TestWithdrawalFromAnUnavailableClusterWaitsQuietly checks a cluster that
+// left the placement while its agent is offline, at the moment a lease
+// granted there expires: the cluster is reported as unavailable rather than
+// Revoking forever, the lease keeps it as pending, the policy is not
+// re-checked every few seconds while nothing can change, and once the
+// cluster is back the withdrawal completes. Placing the cluster again while
+// its work is still being deleted is reported the same way.
+func TestWithdrawalFromAnUnavailableClusterWaitsQuietly(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startControllerIn(t, clock.Now, "offline")
+	defer stop()
+	t.Cleanup(func() { releaseWorks(t) })
+
+	f := newFleet(t, "offline", []string{"of-east", "of-west"}, []string{"of-east", "of-west"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	l := f.lease("incident-61", p.Name, time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	active := waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	eventually(t, 10*time.Second, "the work agent's finalizer on both works", func() error {
+		ackWorks(t, holdDeletion)
+		for c, w := range works(t, p) {
+			if !controllerutil.ContainsFinalizer(&w, workv1.ManifestWorkFinalizer) {
+				return fmt.Errorf("%s has no finalizer yet", c)
+			}
+		}
+		return nil
+	})
+
+	setClusterAvailable(t, "of-west", false)
+	clock.Set(active.CreationTimestamp.Add(time.Minute + time.Second))
+	f.selectClusters(t, "of-east")
+	unavailable := func() error {
+		pol := getPolicy(t, p)
+		cs := clusterStatus(pol, "of-west")
+		if cs == nil || cs.Ready || cs.Reason != "ClusterUnavailable" || !strings.Contains(cs.Message, "reconnect") {
+			return fmt.Errorf("of-west status %+v", cs)
+		}
+		if meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionProgressing) {
+			return fmt.Errorf("nothing can progress while the cluster is away: %+v", pol.Status.Conditions)
+		}
+		return nil
+	}
+	eventually(t, 10*time.Second, "of-west to be reported unavailable", func() error {
+		ackWorks(t, holdDeletion)
+		if got := getLease(t, l); got.Status.Phase != fpv1.LeaseExpired || strings.Join(got.Status.Clusters, ",") != "of-west" {
+			return fmt.Errorf("the expired lease must still be withdrawing from of-west: %+v", got.Status)
+		}
+		return unavailable()
+	})
+	before := reconciles()
+	time.Sleep(15 * time.Second)
+	if n := reconciles() - before; n > 1 {
+		t.Fatalf("%v reconciles in 15s while the only change waits for an unavailable cluster", n)
+	}
+
+	f.selectClusters(t, "of-east", "of-west")
+	eventually(t, 10*time.Second, "the re-placed cluster to be reported unavailable", unavailable)
+
+	setClusterAvailable(t, "of-west", true)
+	eventually(t, 15*time.Second, "delivery to of-west and the withdrawal to complete once it is back", func() error {
+		releaseWorks(t)
+		ackWorks(t)
+		pol := getPolicy(t, p)
+		if pol.Status.ClusterSummary != "2/2" || !meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionReady) {
+			return fmt.Errorf("status %+v", pol.Status)
+		}
+		if got := getLease(t, l); len(got.Status.Clusters) != 0 {
+			return fmt.Errorf("lease still withdrawing from %v", got.Status.Clusters)
+		}
+		return nil
+	})
+}
+
+// TestActiveLeaseListsClustersStillBeingWithdrawn checks that an active
+// lease keeps a cluster that left the placement in status.clusters while the
+// grant is still being withdrawn from it, and that this does not make the
+// lease not Ready.
+func TestActiveLeaseListsClustersStillBeingWithdrawn(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer stop()
+	t.Cleanup(func() { releaseWorks(t) })
+
+	f := newFleet(t, "lease-withdrawal", []string{"lw-east", "lw-west"}, []string{"lw-east", "lw-west"})
+	p := f.policy("sre-remediation")
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	l := f.lease("incident-51", p.Name, 10*time.Minute, "restart_workload")
+	if err := k8s.Create(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+	eventually(t, 10*time.Second, "the work agent's finalizer on both works", func() error {
+		ackWorks(t, holdDeletion)
+		for c, w := range works(t, p) {
+			if !controllerutil.ContainsFinalizer(&w, workv1.ManifestWorkFinalizer) {
+				return fmt.Errorf("%s has no finalizer yet", c)
+			}
+		}
+		return nil
+	})
+
+	f.selectClusters(t, "lw-east")
+	eventually(t, 10*time.Second, "lw-west to stay listed while its grant is withdrawn", func() error {
+		ackWorks(t, holdDeletion)
+		got := getLease(t, l)
+		if strings.Join(got.Status.Clusters, ",") != "lw-east,lw-west" || got.Status.ClusterCount != 2 {
+			return fmt.Errorf("lease clusters %v", got.Status.Clusters)
+		}
+		if got.Status.Phase != fpv1.LeaseActive || !meta.IsStatusConditionTrue(got.Status.Conditions, fpv1.ConditionReady) {
+			return fmt.Errorf("the lease must stay Active and Ready: %+v", got.Status)
+		}
+		return nil
+	})
+
+	eventually(t, 15*time.Second, "lw-west to be dropped once the work is gone", func() error {
+		releaseWorks(t)
+		ackWorks(t)
+		if got := getLease(t, l); strings.Join(got.Status.Clusters, ",") != "lw-east" {
+			return fmt.Errorf("lease clusters %v", got.Status.Clusters)
+		}
+		return nil
+	})
 }

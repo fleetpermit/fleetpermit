@@ -40,11 +40,16 @@ import (
 	"github.com/fleetpermit/fleetpermit/internal/placement/ocm"
 )
 
-// IndexLeases registers the lease-to-policy field index.
-func IndexLeases(ctx context.Context, mgr ctrl.Manager) error {
-	return mgr.GetFieldIndexer().IndexField(ctx, &fpv1.ToolAccessLease{}, PolicyIndexField, func(o client.Object) []string {
+// IndexFields registers the field indexes the controller reads: leases by
+// the policy they reference, and ManifestWorks by the policy they deliver.
+func IndexFields(ctx context.Context, mgr ctrl.Manager) error {
+	err := mgr.GetFieldIndexer().IndexField(ctx, &fpv1.ToolAccessLease{}, PolicyIndexField, func(o client.Object) []string {
 		return []string{o.(*fpv1.ToolAccessLease).Spec.PolicyRef.Name}
 	})
+	if err != nil {
+		return err
+	}
+	return ocm.IndexWorks(ctx, mgr.GetFieldIndexer())
 }
 
 // CacheOptions returns the manager's cache settings. Only FleetPermit's own

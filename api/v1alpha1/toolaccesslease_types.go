@@ -123,8 +123,12 @@ type ToolAccessLease struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// The immutability rule compares the fields one by one, and the duration
+	// by value, because clients may write an unchanged duration in another
+	// form ("30m" as "30m0s"). A field added to the spec must be added to it.
+
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable; create a new ToolAccessLease instead"
+	// +kubebuilder:validation:XValidation:rule="self.policyRef == oldSelf.policyRef && self.subject == oldSelf.subject && self.permissions == oldSelf.permissions && has(self.duration) == has(oldSelf.duration) && (!has(self.duration) || duration(self.duration) == duration(oldSelf.duration)) && (has(self.clusters) ? self.clusters : []) == (has(oldSelf.clusters) ? oldSelf.clusters : []) && (has(self.reason) ? self.reason : '') == (has(oldSelf.reason) ? oldSelf.reason : '')",message="spec is immutable; create a new ToolAccessLease instead"
 	Spec ToolAccessLeaseSpec `json:"spec"`
 	// +optional
 	Status ToolAccessLeaseStatus `json:"status,omitempty"`

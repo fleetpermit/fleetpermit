@@ -246,3 +246,18 @@ func TestEvaluateForgedStatusCannotExceedMaximum(t *testing.T) {
 		t.Fatalf("a recorded expiry beyond the policy maximum must be denied, got %+v", d)
 	}
 }
+
+// TestDefaultDurationFollowsALowerMaximum checks a policy that sets only a
+// maximum below the 15-minute default: a lease without a duration gets the
+// maximum instead of being denied for exceeding it.
+func TestDefaultDurationFollowsALowerMaximum(t *testing.T) {
+	p := policy()
+	p.Spec.Lease = fpv1.LeaseSettings{MaxDuration: dur(10 * time.Minute)}
+	d := Evaluate(p, lease(), placed, created.Add(time.Minute))
+	if d.Denied || !d.Active() {
+		t.Fatalf("expected an active lease, got %+v", d)
+	}
+	if want := created.Add(10 * time.Minute); !d.ExpiresAt.Equal(want) {
+		t.Fatalf("ExpiresAt = %s, want %s (the policy maximum)", d.ExpiresAt, want)
+	}
+}

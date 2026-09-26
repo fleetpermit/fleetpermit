@@ -36,6 +36,11 @@ var ErrPlacementNotFound = errors.New("placement not found")
 // once the deletion has completed.
 var ErrStillDeleting = errors.New("the previous delivery is still being deleted")
 
+// ErrClusterUnavailable is returned by Apply when delivery waits for a change
+// that only the cluster can make, such as removing its previous delivery, and
+// the cluster is not available. Nothing changes until it reconnects.
+var ErrClusterUnavailable = errors.New("the managed cluster is not available")
+
 // ClusterState is the observed delivery state of one cluster.
 type ClusterState struct {
 	Cluster string
@@ -55,9 +60,11 @@ type Provider interface {
 	Apply(ctx context.Context, policy *fpv1.FleetAccessPolicy, cluster string, res enforcement.Result) error
 	// Remove deletes everything the policy delivered to the cluster.
 	Remove(ctx context.Context, policy *fpv1.FleetAccessPolicy, cluster string) error
-	// Withdraw deletes everything delivered, on every cluster, for a policy
-	// that no longer exists, identified by its namespace and name.
-	Withdraw(ctx context.Context, policy types.NamespacedName) error
+	// Withdraw deletes everything delivered, on every cluster, for policies
+	// with this namespace and name except the one with UID keep: all of it
+	// when the policy no longer exists (keep is empty), or what an earlier
+	// policy with the same name left behind.
+	Withdraw(ctx context.Context, policy types.NamespacedName, keep types.UID) error
 	// Observe reports every cluster that holds content for the policy,
 	// including content that is still being deleted.
 	Observe(ctx context.Context, policy *fpv1.FleetAccessPolicy) (map[string]ClusterState, error)
