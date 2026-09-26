@@ -164,7 +164,7 @@ Simulated controller scale (envtest, no real clusters): a lease reached 100 logi
 
 Upstream conformance, run unmodified against a lab cluster: kube-agentic-networking conformance (upstream, unmodified) v0.2.0: **PASS — 6 passed, 0 failed, 3 skipped**.
 
-Statement coverage of `internal/` (unit + integration): **90.0%**.
+Statement coverage of `internal/` (unit + integration): **90.3%**.
 <!-- results:end -->
 
 Full tables, raw evidence and methodology: [docs/results.md](docs/results.md). These are local kind

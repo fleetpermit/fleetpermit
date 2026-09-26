@@ -21,11 +21,15 @@ package integration
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/yaml"
 
 	fpv1 "github.com/fleetpermit/fleetpermit/api/v1alpha1"
 )
@@ -158,5 +162,30 @@ func TestAPILeaseValidationAndImmutability(t *testing.T) {
 	l.Spec.Duration = &d
 	if err := k8s.Update(ctx, l); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("extending a lease must be rejected as immutable, got %v", err)
+	}
+}
+
+// TestSamplesAreValid creates every manifest in config/samples against the
+// real API server with the FleetPermit and OCM CRDs installed.
+func TestSamplesAreValid(t *testing.T) {
+	createNamespace(t, "fleet")
+	files, err := filepath.Glob(filepath.Join("..", "..", "config", "samples", "*.yaml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no samples found: %v", err)
+	}
+	for _, f := range files {
+		t.Run(filepath.Base(f), func(t *testing.T) {
+			b, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			u := &unstructured.Unstructured{}
+			if err := yaml.Unmarshal(b, &u.Object); err != nil {
+				t.Fatal(err)
+			}
+			if err := k8s.Create(context.Background(), u); err != nil {
+				t.Fatalf("sample %s rejected: %v", filepath.Base(f), err)
+			}
+		})
 	}
 }
