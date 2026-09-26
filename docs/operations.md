@@ -32,10 +32,12 @@ currently selects. Without it, upstream enforces nothing on that backend
 | `leaderElection.enabled` | `true` | |
 | `watchNamespace` | `""` | restrict FleetPermit objects, placements and decisions to one namespace |
 | `workExecutor` | `""` | `namespace/name` of a managed-cluster ServiceAccount that the OCM work agent applies content as; see [RBAC](#rbac) |
+| `logLevel` | `info` | controller log level, passed as `--zap-log-level` |
 | `metrics.enabled` / `metrics.port` / `metrics.scrapeAnnotations` | `true` / `8080` / `true` | Prometheus endpoint and `prometheus.io/*` annotations |
 | `tracing.otlpEndpoint` | `""` | enables OpenTelemetry trace export over OTLP/HTTP |
 | `rbac.create`, `serviceAccount.*` | `true` | |
 | `resources`, `podSecurityContext`, `securityContext`, `nodeSelector`, `tolerations`, `affinity` | hardened defaults | non-root, read-only root filesystem, all capabilities dropped |
+| `podAnnotations`, `podLabels` | `{}` | extra annotations and labels on the controller pod |
 
 ### Building and publishing images elsewhere
 
@@ -81,11 +83,12 @@ Generated from the `+kubebuilder:rbac` markers in `internal/controller` ([`confi
 
 | API group | Resources | Verbs | Why |
 |---|---|---|---|
-| `fleetpermit.github.io` | fleetaccesspolicies, toolaccessleases | get, list, watch, update, patch | reconcile; add and remove the cleanup finalizer |
-| `fleetpermit.github.io` | */status | get, update, patch | report status |
+| `fleetpermit.github.io` | fleetaccesspolicies | get, list, watch, update | reconcile policies; add and remove the cleanup finalizer |
+| `fleetpermit.github.io` | toolaccessleases | get, list, watch | read leases; the controller never changes a lease's spec |
+| `fleetpermit.github.io` | fleetaccesspolicies/status, toolaccessleases/status | get, patch | report status |
 | `fleetpermit.github.io` | fleetaccesspolicies/finalizers | update | set the cleanup finalizer where the `OwnerReferencesPermissionEnforcement` admission plugin is enabled |
 | `cluster.open-cluster-management.io` | placements, placementdecisions, managedclusters | get, list, watch | resolve placements; report unavailable clusters |
-| `work.open-cluster-management.io` | manifestworks | get, list, watch, create, update, patch, delete | deliver and withdraw grants |
+| `work.open-cluster-management.io` | manifestworks | get, list, watch, create, patch, delete | deliver, update and withdraw grants (updates are merge patches) |
 | `coordination.k8s.io` (release namespace) | leases | get, list, watch, create, update, patch, delete | leader election |
 | core, `events.k8s.io` (release namespace) | events | create, patch | events |
 
@@ -102,8 +105,8 @@ and namespace as privileged, and consider these controls:
   manage `xaccesspolicies`. The work agent then applies FleetPermit's content only as far as that
   ServiceAccount's permissions allow, instead of with its own. OCM's hub webhook requires the
   controller to hold the `execute-as` permission on `manifestworks` for that ServiceAccount. The Helm
-  chart adds a ClusterRole for exactly that ServiceAccount when `workExecutor` is set; if you deploy
-  without the chart, add the same rule yourself. The lab does not exercise this option.
+  chart adds a ClusterRole for exactly that ServiceAccount when `workExecutor` is set and
+  `rbac.create` is true; otherwise, add the same rule yourself. The lab does not exercise this option.
 - Grant write access to `toolaccessleases/status` and `fleetaccesspolicies/status` only to the
   controller. A lease without `spec.duration` keeps its expiry pinned in `status.expiresAt`, so a
   principal that can write lease status could extend such a lease up to the policy's `maxDuration`
@@ -127,7 +130,7 @@ Served at `:8080/metrics`. No metric uses identities, lease names or cluster nam
 | `fleetpermit_expired_leases_total` | counter | none | leases that transitioned to Expired |
 | `fleetpermit_denied_leases_total` | counter | `reason` | leases that transitioned to Denied |
 | `fleetpermit_authorized_clusters` | gauge | none | (policy, cluster) pairs holding grants |
-| `fleetpermit_policy_propagation_seconds` | histogram | none | lease creation → Ready on every target cluster |
+| `fleetpermit_policy_propagation_seconds` | histogram | none | lease creation → first Ready on every target cluster; observed once per lease per controller process |
 | `fleetpermit_lease_revocation_seconds` | histogram | none | expiry or denial → grants withdrawn everywhere (cleanup; the gateway already denies at expiry) |
 | `fleetpermit_placement_changes_total` | counter | none | observed changes to a policy's selected clusters |
 
@@ -135,7 +138,9 @@ Useful alerts:
 
 - `increase(fleetpermit_reconcile_errors_total[10m]) > 0`
 - `fleetpermit_active_leases > 0` for longer than your longest `maxDuration` (leases should come and go)
-- `histogram_quantile(0.95, rate(fleetpermit_policy_propagation_seconds_bucket[1h])) > 60`
+- `histogram_quantile(0.95, sum by (le) (rate(fleetpermit_policy_propagation_seconds_bucket[6h]))) > 60`.
+  Each lease adds one sample, so use a window that holds several leases. A lease that never becomes
+  Ready adds no sample; watch its `Ready` condition for that.
 
 controller-runtime's standard workqueue and REST client metrics are also exported.
 
@@ -158,9 +163,21 @@ Set `tracing.otlpEndpoint` (or `OTEL_EXPORTER_OTLP_ENDPOINT`). Spans: `fleetperm
   `Degraded/PlacementNotFound`. Its leases are not denied, though. They go to phase `Pending`
   (`NoEligibleClusters`), and a lease that has not expired is delivered again if the placement comes
   back. This pauses the policy and leaves its leases in place.
-- Upgrade FleetPermit with `helm upgrade`. State lives in the API, and a restart neither withdraws nor
-  re-creates grants. Upgrading from v0.1.0 renames delivered objects; see the
-  [changelog](../CHANGELOG.md).
+- To upgrade FleetPermit, apply the CRDs first, then run `helm upgrade`. Helm installs the chart's
+  `crds/` directory on first install only and never upgrades it:
+
+  ```sh
+  kubectl apply --server-side --force-conflicts -f charts/fleetpermit/crds/
+  helm upgrade fleetpermit charts/fleetpermit -n fleetpermit-system
+  ```
+
+  State lives in the API, and a restart neither withdraws nor re-creates grants. The upgrade from
+  v0.1.0 to v0.1.1 adds the CRD rule that rejects lease durations below 10s, and renames delivered
+  objects; see the [changelog](../CHANGELOG.md).
+- The chart deploys the controller image whose tag is the chart's `appVersion`. Installing from a
+  `main` checkout between releases therefore deploys the last release's image, not the code you
+  checked out. To run unreleased code, build images with `make images`, push them, and set
+  `image.repository` and `image.tag`.
 - Before upgrading upstream components, read [upstream-compatibility.md](upstream-compatibility.md).
   Run `make test-integration` with the new upstream CRD in `test/fixtures/upstream`, and run the e2e
   suite in the lab, before rolling out.
@@ -168,4 +185,4 @@ Set `tracing.otlpEndpoint` (or `OTEL_EXPORTER_OTLP_ENDPOINT`). Spans: `fleetperm
   are reported to the hub. It affects status and drift repair, and has no effect on enforcement. The
   lab sets 10s.
 - To uninstall, delete all `FleetAccessPolicy` objects first so their finalizers withdraw every grant,
-  then run `helm uninstall fleetpermit`.
+  then run `helm uninstall fleetpermit -n fleetpermit-system`.

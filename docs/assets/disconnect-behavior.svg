@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="dis-t dis-d">
   <title id="dis-t">Expiry with the hub unreachable</title>
-  <desc id="dis-d">Three stages. One: the hub is connected, lease incident-42 is Active, the grant XAccessPolicy is on cluster-east and restart_workload is allowed. Two: the hub becomes unreachable before the lease expires; the grant is still present on cluster-east, but once request.time reaches the expiry timestamp its CEL rule no longer matches, so the Envoy gateway denies the call without any help from the hub. Three: the hub reconnects, marks the lease Expired and withdraws the grant; the grant is removed, the default-deny anchor remains and calls stay denied. Expiry uses each managed cluster's clock, so clock skew shifts the moment of denial.</desc>
+  <desc id="dis-d">Three stages. One: the hub is connected, lease incident-42 is Active, the grant XAccessPolicy is on cluster-east and restart_workload is allowed. Two: the hub becomes unreachable before the lease expires; the grant is still present on cluster-east, but once request.time reaches the expiry timestamp its CEL rule no longer matches, so the Envoy gateway denies the call without any help from the hub. Three: the hub reconnects, marks the lease Expired and withdraws the grant: the grant rule is removed, FleetPermit's policy stays on cluster-east with no active grants, the default-deny anchor remains, and calls stay denied. Expiry uses each managed cluster's clock, so clock skew shifts the moment of denial.</desc>
   <defs>
     <style>
       svg { fill: #E6EDF6; }
@@ -100,8 +100,8 @@
 
     <rect class="box" x="20" y="210" width="320" height="158" rx="10"/>
     <text class="h3 mono" x="36" y="238">cluster-east</text>
-    <text class="sm" x="36" y="264">Grant removed; the default-deny</text>
-    <text class="sm" x="36" y="283">anchor remains</text>
+    <text class="sm" x="36" y="264">Grant rule removed; the policy stays</text>
+    <text class="sm" x="36" y="283">with no active grants, plus the anchor</text>
     <rect x="36" y="314" width="288" height="36" rx="18" fill="#4A1D27"/>
     <text class="sm mono" x="54" y="337" fill="#E6EDF6">restart_workload</text>
     <text class="sm deny" x="308" y="337" text-anchor="end" font-weight="700">DENY</text>

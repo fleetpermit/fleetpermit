@@ -38,7 +38,7 @@ Short name `fap`. The maximum authority that leases may activate.
 | `spec.target.ref.name` | string | required | the backend or gateway name |
 | `spec.permissions[].tool` | string | required | API server: 1–16 unique tools; `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, at most 20 characters (upstream params limit). Re-checked by the renderer |
 | `spec.lease.required` | bool | `true` | `false` grants every permission to every subject without a lease (standing access) |
-| `spec.lease.defaultDuration` | duration | `15m` | used when a lease omits `duration`. API server: at least `10s` and at most `maxDuration` |
+| `spec.lease.defaultDuration` | duration | `15m` | used when a lease omits `duration`. API server: at least `10s` and at most `maxDuration`. The API server fills in `15m` when the field is omitted, so a policy with a `maxDuration` below `15m` must also set `defaultDuration`, or it is rejected |
 | `spec.lease.maxDuration` | duration | `1h` | API server: at most `24h` |
 | `spec.enforcement.provider` | enum | `kubernetes-agentic-networking` | API server: only value |
 | `spec.enforcement.failMode` | enum | `Closed` | API server: only value; an open mode is intentionally not offered |
@@ -54,7 +54,7 @@ Status:
 | `observedGeneration` | last processed generation |
 
 ```console
-$ kubectl get fap
+$ kubectl get fap -n fleet
 NAME              CLUSTERS   READY   ACTIVE-LEASES   AGE
 sre-remediation   2/2        True    1               10m
 ```
@@ -91,13 +91,15 @@ Status:
 | `conditions` | `Ready`, `Progressing`, `Degraded`, `Expired`, `Denied` |
 
 ```console
-$ kubectl get tal
+$ kubectl get tal -n fleet
 NAME          POLICY            CLUSTERS   EXPIRES-AT             STATUS   AGE
 incident-42   sre-remediation   2          2026-09-26T10:15:00Z   Active   1m
-$ kubectl get tal -o wide      # adds the SUBJECT column
+$ kubectl get tal -n fleet -o wide      # adds the SUBJECT column
 ```
 
 ### Condition reasons
+
+Reasons on `ToolAccessLease` conditions. The row marked "policy" is a `FleetAccessPolicy` reason.
 
 | Reason | Condition | Meaning |
 |---|---|---|
@@ -111,6 +113,8 @@ $ kubectl get tal -o wide      # adds the SUBJECT column
 | `PermissionNotAllowed` | Denied=True | a requested tool is not in the policy (the message lists them) |
 | `DurationExceedsMaximum` | Denied=True | the duration exceeds `maxDuration` |
 | `LeaseExpired` | Expired=True | past `expiresAt` |
+| `Revoking` | Progressing=True | grants of an expired or denied lease are still being withdrawn from the listed clusters. Also used as a per-cluster reason in the policy status |
+| `NoClustersSelected` | policy: Ready=True | the placement selects no clusters, so nothing is granted |
 
 `Denied` and `Expired` are terminal, provided only the controller can write
 `toolaccessleases/status`. A policy change that removes a lease's tool or subject denies it.
@@ -142,3 +146,8 @@ characters of the SHA-256 of the policy's `namespace/name`.
 
 [`config/samples`](../config/samples) contains a Placement, a policy, a lease and a standing
 read-only policy. The integration tests validate them against the CRDs.
+
+`standing-readonly-policy.yaml` grants `get_cluster_health` to `sre-agent` without a lease
+(`lease.required: false`). Applying the whole directory therefore changes the result of a call made
+without a lease: `get_cluster_health` is then allowed on the placed clusters. Apply the files one by
+one if you want to reproduce the no-lease denial.

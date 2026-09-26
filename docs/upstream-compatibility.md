@@ -74,8 +74,8 @@ Upstream versions are pinned in these places:
 | [`demo/scripts/lib.sh`](../demo/scripts/lib.sh) | the lab: kind node image (Kubernetes v1.35.0, by digest), OCM bundle v1.3.1 and its status sync interval, Gateway API v1.5.1, kube-agentic-networking v0.2.0 and its controller image, Envoy v1.36.6, MetalLB v0.15.3. `lab-up.sh`, `hack/conformance.sh` and `hack/upstream-canary.sh` read these values. |
 | [`hack/install-lab-tools.sh`](../hack/install-lab-tools.sh) | kind v0.32.0 and clusteradm v1.3.1 on Linux CI runners |
 | [`hack/install-helm.sh`](../hack/install-helm.sh) | Helm v3.19.0, installed only when no Helm is on the PATH; an existing Helm (for example the one on GitHub-hosted runners) is used as is |
-| [`Makefile`](../Makefile) | `KAN_VERSION` v0.2.0, controller-gen v0.22.0, the envtest Kubernetes version 1.35.0 and setup-envtest `release-0.25`, govulncheck v1.1.4, bom v0.8.0 |
-| [`go.mod`](../go.mod) | Go 1.26.0 and every Go library, including the OCM API module v1.3.0 |
+| [`Makefile`](../Makefile) | controller-gen v0.22.0, the envtest Kubernetes version 1.35.0 and setup-envtest `release-0.25`, govulncheck v1.1.4, bom v0.8.0 |
+| [`go.mod`](../go.mod) | the Go language version 1.26.0, the `toolchain go1.26.8` pin, and every Go library, including the OCM API module v1.3.0 |
 | [`Dockerfile`](../Dockerfile) | the Go toolchain build image, by digest |
 | [`test/fixtures/upstream`](../test/fixtures/upstream) | the kube-agentic-networking v0.2.0 `XAccessPolicy` CRD, vendored for schema tests |
 | [`internal/enforcement/agenticnetworking/types.go`](../internal/enforcement/agenticnetworking/types.go) | the mirrored v0.2.0 `XAccessPolicy` fields and the rule limit |

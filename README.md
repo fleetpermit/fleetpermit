@@ -155,6 +155,7 @@ spec:
   permissions:
     - tool: get_cluster_health
     - tool: restart_workload
+    - tool: scale_workload
   lease: {required: true, defaultDuration: 15m, maxDuration: 30m}
 ---
 apiVersion: fleetpermit.github.io/v1alpha1
@@ -169,11 +170,11 @@ spec:
 ```
 
 ```console
-$ kubectl get fleetaccesspolicy
+$ kubectl get fleetaccesspolicy -n fleet
 NAME              CLUSTERS   READY   ACTIVE-LEASES   AGE
 sre-remediation   2/2        True    1               10m
 
-$ kubectl get toolaccesslease
+$ kubectl get toolaccesslease -n fleet
 NAME          POLICY            CLUSTERS   EXPIRES-AT             STATUS   AGE
 incident-42   sre-remediation   2          2026-09-26T10:15:00Z   Active   1m
 ```

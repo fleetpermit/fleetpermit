@@ -1,7 +1,10 @@
 # Demo recordings
 
 Terminal recordings of real runs of [`demo/run.sh`](../run.sh) against the lab, captured with
-`make demo-videos` ([`hack/record-demos.sh`](../../hack/record-demos.sh)).
+`make demo-videos` ([`hack/record-demos.sh`](../../hack/record-demos.sh)). That target writes the
+casts, MP4 videos and poster images to `dist/video/` (set `FP_VIDEO_OUT` to change it) and refreshes
+the README GIFs in `docs/assets/`. The `.cast` files in this directory are copied from `dist/video/`
+after recording, and the MP4 videos are published on the website.
 
 The `$ command` lines in a recording are simplified for readability. They show the equivalent
 `kubectl` or container command (for example `kubectl create -f incident-42.yaml`), while the script

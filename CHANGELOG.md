@@ -12,6 +12,9 @@ All notable changes to this project are documented here. The format follows
   the policy's namespace and name. v0.1.0 used 8. A `helm upgrade` from v0.1.0 therefore renames the
   delivered ManifestWork and XAccessPolicy objects. The controller removes the objects with the old
   names, including on clusters that have left the placement and when a policy is deleted.
+- End-to-end scenario S10 now records its own metric, `driftRecoveryToAllowMs` (rendered policy
+  deleted → calls allowed again), separate from the benchmark's `driftRecoveryMs` (rendered policy
+  deleted → object restored).
 
 ### Fixed
 
@@ -41,6 +44,16 @@ All notable changes to this project are documented here. The format follows
   measured only after the first had finished. All clusters are now polled at the same time.
 - A lease that had already expired became `Denied` (with both `Expired` and `Denied` true) when its
   policy was deleted. The first terminal state recorded now stays: an expired lease stays `Expired`.
+- `fleetpermit_lease_revocation_seconds` was never recorded. It is now observed when the last cluster
+  withdraws an expired or denied lease's grant.
+- `fleetpermit_policy_propagation_seconds` was observed again, with the lease's full age, whenever a
+  lease went back to Ready. It is now observed once per lease.
+- The controller's role no longer has `update` or `patch` on `toolaccessleases`, `update` on
+  `manifestworks` or on the status subresources, or `patch` on `fleetaccesspolicies`, which it did
+  not need.
+- The YAML check now also covers `.yaml` workflow files and the demo manifests.
+- The inert policy is now validated against the upstream `XAccessPolicy` schema in the integration
+  tests, like every other rendered shape.
 
 ### Added
 

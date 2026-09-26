@@ -9,7 +9,7 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 </style>
 <rect width="1200" height="600" rx="20" fill="#0C1728"/>
 <text x="40" y="52" font-size="24" font-weight="700">Who may call which tool, where, and while the lease holds</text>
-<text class="dim" x="40" y="78" font-size="14">Expected decisions from policy sre-remediation and lease incident-42. A diagram of the policy, not a test result.</text>
+<text class="dim" x="40" y="78" font-size="14">Expected decisions from policy sre-remediation and one lease that grants get_cluster_health and restart_workload. A diagram of the policy, not a test result.</text>
 <rect x="40" y="104" width="540" height="330" rx="16" fill="#0F1E33" stroke="#2E4468" stroke-width="1.5"/>
 <text x="60" y="138" font-size="17" font-weight="700">Lease <tspan fill="#F5B544">active</tspan></text>
 <text class="mono dim" x="271.0" y="168" font-size="11.5" text-anchor="middle">get_cluster_</text>
@@ -145,8 +145,8 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 <g font-size="14">
 <text x="40" y="478" font-weight="700">ALLOW only when all four hold:</text>
 <text class="dim" x="40" y="504"><tspan fill="#2DD4BF" font-weight="700">WHO</tspan> the agent is sre-agent, a subject of the policy; security-agent is not.</text>
-<text class="dim" x="40" y="528"><tspan fill="#2DD4BF" font-weight="700">WHERE</tspan> the cluster is east or west (env=production); edge is outside the placement.</text>
-<text class="dim" x="40" y="552"><tspan fill="#2DD4BF" font-weight="700">WHAT</tspan> the tool is in the lease: get_cluster_health or restart_workload. scale_workload is permitted by the policy but not leased; read_secret is not permitted.</text>
-<text class="dim" x="40" y="576"><tspan fill="#F5B544" font-weight="700">HOW LONG</tspan> the lease is active; after expiry the gateway denies every call.</text>
+<text class="dim" x="40" y="528"><tspan fill="#2DD4BF" font-weight="700">WHAT</tspan> the tool is in the lease: get_cluster_health or restart_workload. scale_workload is permitted by the policy but not leased; read_secret is not permitted.</text>
+<text class="dim" x="40" y="552"><tspan fill="#F5B544" font-weight="700">HOW LONG</tspan> the lease is active; after expiry the gateway denies every call.</text>
+<text class="dim" x="40" y="576"><tspan fill="#2DD4BF" font-weight="700">WHERE</tspan> the cluster is east or west (env=production); edge is outside the placement.</text>
 </g>
 </svg>

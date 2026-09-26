@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 590" width="1200" height="590" role="img" aria-labelledby="flow-t flow-d">
   <title id="flow-t">How a ToolAccessLease becomes enforcement</title>
-  <desc id="flow-d">A ToolAccessLease named incident-42 asks for restart_workload for 10 minutes. The fleetpermit-controller checks four questions against the FleetAccessPolicy. WHO: the subject must be listed in the policy. WHERE: clusters come from the Open Cluster Management PlacementDecision and a lease may only narrow them. WHAT: the requested tools must be a subset of the policy permissions. HOW LONG: the duration must not exceed maxDuration. If WHO, WHAT or HOW LONG fails the lease is Denied and nothing is rendered. When all pass, the controller renders one XAccessPolicy per policy and cluster with a CEL rule bounded by the expiry time, delivers it with one ManifestWork per selected cluster, and the Envoy gateway enforces identity, tool and time on every call.</desc>
+  <desc id="flow-d">A ToolAccessLease named incident-42 asks for restart_workload for 10 minutes, with the reason INC-42: checkout pods crash-looping. The fleetpermit-controller checks four questions against the FleetAccessPolicy, in this order. WHO: the subject must be listed in the policy. WHAT: the requested tools must be a subset of the policy permissions. HOW LONG: the duration must not exceed maxDuration, here 10 minutes against a 30 minute maximum. WHERE: clusters come from the Open Cluster Management PlacementDecision and a lease may only narrow them. If WHO, WHAT or HOW LONG fails the lease is Denied and nothing is rendered. When all pass, the controller renders one XAccessPolicy per policy and cluster with a CEL rule bounded by the expiry time, delivers it with one ManifestWork per selected cluster, and the Envoy gateway enforces identity, tool and time on every call.</desc>
   <defs>
     <style>
       svg { fill: #E6EDF6; }
@@ -37,15 +37,16 @@
   <rect class="ls" x="40" y="108" width="206" height="176" rx="12"/>
   <text class="h3 mono lease" x="58" y="136">ToolAccessLease</text>
   <text class="h3 mono" x="58" y="160">incident-42</text>
-  <text class="xs mono" x="58" y="190">subject: sre-agent</text>
-  <text class="xs mono" x="58" y="210">tools: restart_workload</text>
-  <text class="xs mono" x="58" y="230">duration: 10m</text>
-  <text class="xs mono" x="58" y="250">reason: incident 42</text>
-  <text class="xs" x="58" y="272">spec is immutable</text>
+  <text class="xs mono" x="58" y="188">subject: sre-agent</text>
+  <text class="xs mono" x="58" y="206">tools: restart_workload</text>
+  <text class="xs mono" x="58" y="224">duration: 10m</text>
+  <text class="xs mono" x="58" y="242">reason: INC-42: checkout</text>
+  <text class="xs mono" x="58" y="258">pods crash-looping</text>
+  <text class="xs" x="58" y="276">spec is immutable</text>
 
   <path class="wire" d="M246 196H272" marker-end="url(#flow-a)"/>
 
-  <!-- Four checks -->
+  <!-- Four checks, in the order the controller evaluates them -->
   <g>
     <rect class="gate" x="276" y="108" width="210" height="176" rx="12"/>
     <text class="q allow" x="296" y="142">WHO?</text>
@@ -59,35 +60,35 @@
   <path class="wire" d="M486 196H500" marker-end="url(#flow-a)"/>
   <g>
     <rect class="gate" x="504" y="108" width="210" height="176" rx="12"/>
-    <text class="q allow" x="524" y="142">WHERE?</text>
-    <text class="sm" x="524" y="168">OCM PlacementDecision;</text>
-    <text class="sm" x="524" y="187">a lease may only narrow</text>
-    <text class="xs mono" x="524" y="214">cluster-east</text>
-    <text class="xs mono" x="524" y="232">cluster-west</text>
-    <text class="xs" x="524" y="256">other clusters never</text>
-    <text class="xs" x="524" y="273">receive a grant</text>
+    <text class="q allow" x="524" y="142">WHAT?</text>
+    <text class="sm" x="524" y="168">Requested tools are a</text>
+    <text class="sm" x="524" y="187">subset of the permissions</text>
+    <text class="xs mono" x="524" y="214">restart_workload</text>
+    <text class="xs mono" x="524" y="232">⊆ permissions</text>
+    <text class="xs" x="524" y="256">else the lease is Denied:</text>
+    <text class="xs deny" x="524" y="273">PermissionNotAllowed</text>
   </g>
   <path class="wire" d="M714 196H728" marker-end="url(#flow-a)"/>
   <g>
-    <rect class="gate" x="732" y="108" width="210" height="176" rx="12"/>
-    <text class="q allow" x="752" y="142">WHAT?</text>
-    <text class="sm" x="752" y="168">Requested tools are a</text>
-    <text class="sm" x="752" y="187">subset of the permissions</text>
-    <text class="xs mono" x="752" y="214">restart_workload</text>
-    <text class="xs mono" x="752" y="232">⊆ permissions</text>
+    <rect class="gate" x="732" y="108" width="210" height="176" rx="12" stroke="#F5B544"/>
+    <text class="q lease" x="752" y="142">HOW LONG?</text>
+    <text class="sm" x="752" y="168">Duration is at most</text>
+    <text class="sm" x="752" y="187">the policy maxDuration</text>
+    <text class="xs mono" x="752" y="214">10m ≤ 30m</text>
+    <text class="xs mono" x="752" y="232">expires 10:15:00Z</text>
     <text class="xs" x="752" y="256">else the lease is Denied:</text>
-    <text class="xs deny" x="752" y="273">PermissionNotAllowed</text>
+    <text class="xs deny" x="752" y="273">DurationExceedsMaximum</text>
   </g>
   <path class="wire" d="M942 196H956" marker-end="url(#flow-a)"/>
   <g>
-    <rect class="gate" x="960" y="108" width="200" height="176" rx="12" stroke="#F5B544"/>
-    <text class="q lease" x="980" y="142">HOW LONG?</text>
-    <text class="sm" x="980" y="168">Duration is at most</text>
-    <text class="sm" x="980" y="187">the policy maxDuration</text>
-    <text class="xs mono" x="980" y="214">10m ≤ 1h</text>
-    <text class="xs mono" x="980" y="232">expires 10:15:00Z</text>
-    <text class="xs" x="980" y="256">else the lease is Denied:</text>
-    <text class="xs deny" x="980" y="273">DurationExceedsMaximum</text>
+    <rect class="gate" x="960" y="108" width="200" height="176" rx="12"/>
+    <text class="q allow" x="980" y="142">WHERE?</text>
+    <text class="sm" x="980" y="168">OCM PlacementDecision;</text>
+    <text class="sm" x="980" y="187">a lease may only narrow</text>
+    <text class="xs mono" x="980" y="214">cluster-east</text>
+    <text class="xs mono" x="980" y="232">cluster-west</text>
+    <text class="xs" x="980" y="256">other clusters never</text>
+    <text class="xs" x="980" y="273">receive a grant</text>
   </g>
 
   <!-- All pass: continue to rendering -->
@@ -128,5 +129,5 @@
     <text class="sm" x="910" y="470">time on every tools/call</text>
     <text class="xs" x="910" y="506"><tspan class="allow" font-weight="700">ALLOW</tspan> or <tspan class="deny" font-weight="700">DENY</tspan> in the data plane</text>
   </g>
-  <text class="xs" x="40" y="556"><tspan class="deny" font-weight="700">Denied</tspan> is terminal: a failed WHO, WHAT or HOW LONG check stops the lease and nothing is rendered. A cluster outside WHERE simply never receives a grant.</text>
+  <text class="xs" x="40" y="556"><tspan class="deny" font-weight="700">Denied</tspan> is terminal: a failed WHO, WHAT or HOW LONG check stops the lease and nothing is rendered. A cluster outside WHERE never receives a grant.</text>
 </svg>

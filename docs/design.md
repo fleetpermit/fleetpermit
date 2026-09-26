@@ -1,7 +1,9 @@
 # Design and architecture decisions
 
 This document records the decisions that shape FleetPermit v0.1, the alternatives considered, and
-the evidence behind each choice. Each decision says what would make us revisit it.
+the evidence behind each choice. Each decision says what would make us revisit it. "v0.1" means the
+v0.1.0 release plus the fixes listed under Unreleased in the [changelog](../CHANGELOG.md), which ship
+in v0.1.1. Behaviour marked "(v0.1.1)" is not in v0.1.0.
 
 ## ADR-1: Compose existing projects; implement exactly one provider per seam
 
@@ -119,7 +121,7 @@ of clusters that leave the placement, and of deleted policies, are deleted.
 When capacity is exceeded, grants are ordered deterministically: standing grants first, then leases by
 creation time and name. A lease that does not fit on some clusters is reported `Degraded` with reason
 `CapacityExceeded` on those clusters. A lease that fits on no cluster stays in phase `Pending` with the
-same reason, and activates when capacity frees up. Leases are never dropped silently.
+same reason, and activates when capacity frees up (v0.1.1). Leases are never dropped silently.
 
 ## ADR-5: API group `fleetpermit.github.io`
 
@@ -136,21 +138,22 @@ version can move to it.
   so the requester cannot choose it. A lease that omits `duration` gets the policy's
   `defaultDuration` in effect when it is first evaluated. That expiry is then pinned through
   `status.expiresAt`, so raising the policy default later cannot extend an issued lease, and lowering
-  the policy maximum below it denies the lease. This was found in code review; see
+  the policy maximum below it denies the lease (v0.1.1; in v0.1.0 a lease without `duration` followed
+  the policy's current default). This was found in code review; see
   `TestPolicyDefaultChangeCannotExtendLease`.
 - Because that pinned value lives in the status subresource, only the controller should be able to
   write `toolaccessleases/status`. A principal that can write it could extend such a lease up to the
   policy's `maxDuration`. A recorded expiry beyond the maximum denies the lease
   (`TestEvaluateForgedStatusCannotExceedMaximum`).
 - ManifestWork and XAccessPolicy names carry a 64-bit hash (16 hex characters) of the policy's
-  namespace and name. FleetPermit refuses to modify a ManifestWork owned by another policy
-  (`TestForeignManifestWorkIsNotOverwritten`).
+  namespace and name, and FleetPermit refuses to modify a ManifestWork owned by another policy
+  (`TestForeignManifestWorkIsNotOverwritten`). Both are v0.1.1; v0.1.0 used 8 hex characters.
 - `Denied` and `Expired` are terminal, provided only the controller can write
   `toolaccessleases/status`: the controller reads the recorded conditions back to keep them sticky. A
   lease denied for asking for `read_secret` does not become active later if someone adds
   `read_secret` to the policy. A policy that narrows denies the leases it no longer covers at once.
   Deleting a policy denies its leases that have not expired; expired leases stay `Expired`
-  (`TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted`).
+  (v0.1.1, `TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted`).
 - A lease without `clusters` follows the placement as it changes, within its expiry. A lease with
   `clusters` only ever intersects them with the placement.
 
@@ -172,6 +175,8 @@ and validates every rendered shape against the pinned upstream CRD in the integr
 API module is small and is imported directly.
 
 ## ADR-9: Patch ManifestWorks; never read-modify-write against the OCM work agent
+
+This decision and ADR-10 are v0.1.1.
 
 **Finding.** In the lab, the first lease after a controller restart sometimes reached one cluster
 seconds later than the other. The OCM work agent writes ManifestWork status continuously. A
