@@ -1,9 +1,8 @@
 # Design and architecture decisions
 
 This document records the decisions that shape FleetPermit v0.1, the alternatives considered, and
-the evidence behind each choice. Each decision says what would make us revisit it. "v0.1" means the
-v0.1.0 release plus the fixes listed under Unreleased in the [changelog](../CHANGELOG.md), which ship
-in v0.1.1. Behaviour marked "(v0.1.1)" is not in v0.1.0.
+the evidence behind each choice. Each decision says what would make us revisit it. "v0.1" means
+v0.1.1; behaviour marked "(v0.1.1)" is not in v0.1.0 (see the [changelog](../CHANGELOG.md)).
 
 ## ADR-1: Compose existing projects; implement exactly one provider per seam
 

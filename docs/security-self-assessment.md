@@ -1,9 +1,8 @@
 # Security self-assessment
 
 This self-assessment follows the structure of the CNCF TAG Security self-assessment template. It
-describes FleetPermit v0.1 as implemented on `main`: the v0.1.0 release plus the fixes listed under
-Unreleased in the [changelog](../CHANGELOG.md), which ship in v0.1.1. It has not been reviewed by TAG Security or audited by a
-third party.
+describes FleetPermit v0.1.1 (see the [changelog](../CHANGELOG.md) for what changed since v0.1.0). It
+has not been reviewed by TAG Security or audited by a third party.
 
 ## Metadata
 

@@ -21,7 +21,7 @@ and contributors can see where it stands.
 | Upstream conformance | upstream suite run unmodified | [results.md](results.md#upstream-conformance) |
 | CI on every change | verify, vulnerability scan, unit, integration, images | [.github/workflows](../.github/workflows) |
 | Supply chain | pinned actions, signed commits and tags, signed container images and release assets (Sigstore cosign), SPDX SBOM per release, OpenSSF Scorecard | release workflow, scorecard workflow, [verifying releases](operations.md#verifying-releases) |
-| Release | v0.1.0 pre-release with multi-arch images and a Helm chart | [CHANGELOG.md](../CHANGELOG.md) |
+| Release | v0.1.1 pre-release with multi-arch images and a Helm chart (v0.1.0 before it) | [CHANGELOG.md](../CHANGELOG.md) |
 
 ## Not yet in place
 

@@ -2,9 +2,8 @@
 
 This document describes what FleetPermit defends against, what it relies on, and where its
 guarantees end. It covers v0.1 with the kube-agentic-networking v0.2.0 reference implementation and
-Open Cluster Management v1.3. "v0.1" means the v0.1.0 release plus the fixes listed under Unreleased
-in the [changelog](../CHANGELOG.md), which ship in v0.1.1; mitigations marked "(v0.1.1)" are not in
-v0.1.0. References such as (S5) point to scenarios in
+Open Cluster Management v1.3. "v0.1" means v0.1.1; mitigations marked "(v0.1.1)" are not in v0.1.0
+(see the [changelog](../CHANGELOG.md)). References such as (S5) point to scenarios in
 [results.md](results.md). Names such as `TestEvaluateForgedStatusCannotExceedMaximum` are unit tests
 in `internal/` or integration tests in `test/integration`.
 

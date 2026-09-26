@@ -42,10 +42,10 @@ currently selects. Without it, upstream enforces nothing on that backend
 ### Building and publishing images elsewhere
 
 ```sh
-make images IMAGE_REGISTRY=registry.example.com/platform IMAGE_TAG=v0.1.0
-podman push registry.example.com/platform/fleetpermit-controller:v0.1.0
+make images IMAGE_REGISTRY=registry.example.com/platform IMAGE_TAG=v0.1.1
+podman push registry.example.com/platform/fleetpermit-controller:v0.1.1
 helm install fleetpermit charts/fleetpermit -n fleetpermit-system --create-namespace \
-  --set image.registry=registry.example.com --set image.repository=platform/fleetpermit-controller --set image.tag=v0.1.0
+  --set image.registry=registry.example.com --set image.repository=platform/fleetpermit-controller --set image.tag=v0.1.1
 ```
 
 Images are static Go binaries on `scratch`. They run as UID 65532 and contain only the binary and CA
@@ -70,7 +70,7 @@ cosign verify ghcr.io/fleetpermit/fleetpermit-controller@sha256:<digest> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # a release asset (the Helm chart, the SBOM)
-cosign verify-blob fleetpermit-0.1.0.tgz --bundle fleetpermit-0.1.0.tgz.sigstore.json \
+cosign verify-blob fleetpermit-0.1.1.tgz --bundle fleetpermit-0.1.1.tgz.sigstore.json \
   --certificate-identity-regexp '^https://github.com/fleetpermit/fleetpermit/.github/workflows/(release|sign-release).yaml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
