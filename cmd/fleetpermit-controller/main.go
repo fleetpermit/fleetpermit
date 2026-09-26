@@ -130,7 +130,11 @@ func main() {
 		LeaderElection:          leaderElect,
 		LeaderElectionID:        "fleetpermit-controller.fleetpermit.github.io",
 		LeaderElectionNamespace: leaderElectNS,
-		Cache:                   cacheOpts,
+		// Step down on shutdown so a replacement pod (rolling update or
+		// restart) takes over at once instead of waiting for the lease to
+		// expire. Safe because the process exits as soon as the manager stops.
+		LeaderElectionReleaseOnCancel: true,
+		Cache:                         cacheOpts,
 	})
 	if err != nil {
 		log.Error(err, "unable to create manager")

@@ -368,7 +368,8 @@ func markdown(out map[string]any) string {
 		}
 		w("\n")
 		w("Sources of variance in these runs:\n\n")
-		w("- Each sample includes one host-to-pod probe round trip (see the baseline row). Probes repeat every 250 ms, which adds up to 250 ms more.\n")
+		w("- Each sample includes one host-to-pod probe round trip (see the baseline row). Probes repeat every 250 ms, which adds up to 250 ms more. " +
+			"Clusters are polled at the same time, so clusters that change within the same polling round report the same value.\n")
 		sync := "the klusterlet status sync interval"
 		if env, ok := out["benchmarkEnvironment"].(map[string]any); ok && str(env["ocmStatusSyncInterval"]) != "" {
 			sync += " (" + str(env["ocmStatusSyncInterval"]) + " in the lab)"
@@ -377,10 +378,10 @@ func markdown(out map[string]any) string {
 		w("- Ready status includes OCM status feedback, so it depends on the same interval.\n")
 		if e2e, ok := out["e2e"].(map[string]any); ok {
 			if east, west, ok := s1Activation(e2e); ok && math.Max(east, west) > 2000 {
-				w("- Open issue: in this run the first lease after lab setup reached cluster-east after %.0f ms and cluster-west after %.0f ms. "+
-					"The suite captures hub and work-agent logs whenever an activation takes longer than 2 s. In the captures so far, the FleetPermit controller "+
-					"logged no delivery error and the slow cluster's work agent applied the change late while the other applied it at once, which places the "+
-					"delay in OCM's delivery of the ManifestWork change to one agent. It is still being investigated.\n", east, west)
+				w("- Open issue: in this run the first lease reached cluster-east after %.0f ms and cluster-west after %.0f ms. "+
+					"The suite saves hub and work-agent logs whenever an activation takes longer than 2 s. One cause found this way, a new "+
+					"controller pod waiting for the previous pod's leader-election lease to expire, is fixed (the leader now steps down on "+
+					"shutdown). Other slow first activations are still being investigated.\n", east, west)
 			}
 		}
 		w("\n")
