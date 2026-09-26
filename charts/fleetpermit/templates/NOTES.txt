@@ -4,12 +4,17 @@ Check the controller:
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "fleetpermit.name" . }}
 
 Each managed cluster also needs, once:
-  - config/managed-cluster/work-agent-rbac.yaml, so the OCM work agent may manage XAccessPolicy objects;
-  - config/managed-cluster/default-deny-anchor.yaml for every governed backend, so a backend without
-    grants stays closed (upstream allows every call to a backend that has no XAccessPolicy).
+  - work-agent-rbac.yaml, so the OCM work agent may manage XAccessPolicy objects:
+    https://raw.githubusercontent.com/fleetpermit/fleetpermit/{{ .Chart.AppVersion }}/config/managed-cluster/work-agent-rbac.yaml
+  - default-deny-anchor.yaml for every governed backend, edited to target the same resource as
+    your policies' target.ref, so a backend without grants stays closed (upstream allows every
+    call to a backend that has no XAccessPolicy):
+    https://raw.githubusercontent.com/fleetpermit/fleetpermit/{{ .Chart.AppVersion }}/config/managed-cluster/default-deny-anchor.yaml
 
 Then create a FleetAccessPolicy that references an OCM Placement in its own namespace, and a
-ToolAccessLease. Samples are in config/samples; the guide is docs/operations.md.
+ToolAccessLease. Samples and the operations guide:
+  https://github.com/fleetpermit/fleetpermit/tree/{{ .Chart.AppVersion }}/config/samples
+  https://github.com/fleetpermit/fleetpermit/blob/{{ .Chart.AppVersion }}/docs/operations.md
 
-Before a later "helm upgrade", apply the CRDs first, because Helm never upgrades them:
-  kubectl apply --server-side --force-conflicts -f charts/fleetpermit/crds/
+Before a later "helm upgrade", apply the new chart's CRDs first, because Helm never upgrades them
+(kubectl apply --server-side --force-conflicts -f <chart>/crds/).

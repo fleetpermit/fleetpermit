@@ -1,6 +1,9 @@
 {{- with .Values.watchNamespace }}
 {{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" .) }}{{ fail "watchNamespace must be a namespace name (lowercase letters, digits and '-')" }}{{ end }}
 {{- end }}
+{{- with .Values.workExecutor }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-a-z0-9.]*[a-z0-9])?$" .) }}{{ fail "workExecutor must be namespace/name of a ServiceAccount" }}{{ end }}
+{{- end }}
 {{- if and (gt (int .Values.replicas) 1) (not .Values.leaderElection.enabled) }}
 {{- fail "replicas greater than 1 needs leaderElection.enabled=true" }}
 {{- end }}

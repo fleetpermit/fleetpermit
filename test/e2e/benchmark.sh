@@ -14,6 +14,12 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# Without a lab there is nothing to measure: skip before checking tools or
+# starting anything on this machine.
+if [[ ! -s "${FP_KUBECONFIG}" ]]; then
+  warn "no lab kubeconfig at ${FP_KUBECONFIG}; skipping the real-cluster benchmark (make demo-up first)"
+  exit 0
+fi
 need jq kubectl python3
 detect_engine
 if ! hub get ns >/dev/null 2>&1; then
