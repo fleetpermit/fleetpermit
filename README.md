@@ -264,7 +264,7 @@ calls through the lab's gateways returned.
 Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM v1.3.1, kube-agentic-networking v0.2.0, Darwin/arm64, 2026-09-26):
 
 - **20 of 21 scenarios passed**, 0 failed, 1 not supported by the upstream API (argument-level matching).
-- **Reproduced** on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36241659987)).
+- **Reproduced** on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36248040097)).
 - **Decision matrix: 48 of 48 real MCP calls matched the expected outcome.**
 
 #### Test agents and expected outcomes

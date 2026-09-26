@@ -1276,7 +1276,7 @@
       "unsupported": 1
     }
   },
-  "generatedAt": "2026-09-26T14:17:33Z",
+  "generatedAt": "2026-09-26T14:34:09Z",
   "latency": {
     "activationToAllowMs": {
       "label": "Lease created → first ALLOW at the gateway",
@@ -1459,7 +1459,7 @@
         "containerEngine": "docker",
         "description": "local kind clusters on a single development host; not a production benchmark",
         "envoy": "v1.36.6",
-        "fleetpermitCommit": "73ebcf1",
+        "fleetpermitCommit": "dad8c38",
         "gatewayAPI": "v1.5.1",
         "hub": 1,
         "kind": "v0.32.0",
@@ -1469,11 +1469,11 @@
         "openClusterManagement": "v1.3.1",
         "os": "Linux"
       },
-      "finishedAt": "2026-09-26T12:33:56Z",
+      "finishedAt": "2026-09-26T14:33:06Z",
       "kind": "real-multicluster-e2e",
-      "runURL": "https://github.com/fleetpermit/fleetpermit/actions/runs/36241659987",
+      "runURL": "https://github.com/fleetpermit/fleetpermit/actions/runs/36248040097",
       "runner": "GitHub Actions ubuntu-latest",
-      "startedAt": "2026-09-26T12:30:52Z",
+      "startedAt": "2026-09-26T14:30:00Z",
       "summary": {
         "failed": 0,
         "passed": 20,
