@@ -16,9 +16,10 @@ Validation happens in two places:
 - The controller checks everything that depends on another object when it evaluates a lease: the
   policy exists, the subject is listed in the policy, the tools are a subset of the policy's
   permissions, the duration is at most the policy's `maxDuration`, and the requested clusters are in
-  the placement. A lease that fails one of these checks is stored, then marked `Denied` (or `Pending`
-  for the placement check) with a reason. The renderer also re-checks tool names and SPIFFE IDs
-  before it builds a CEL expression.
+  the placement. A lease is always stored first. It is then marked `Denied` if its subject, tools or
+  duration break the policy, and `Pending` if no requested cluster is placed; the reasons are listed
+  under [Condition reasons](#condition-reasons), which also covers a missing policy. The renderer
+  re-checks tool names and SPIFFE IDs before it builds a CEL expression.
 
 In the tables, "API server" and "controller" say where each rule is enforced.
 
@@ -35,7 +36,7 @@ Short name `fap`. The maximum authority that leases may activate.
 | `spec.target.namespace` | string | required | API server: a DNS label. The namespace of the target on each managed cluster |
 | `spec.target.ref.group` | enum | `agentic.networking.x-k8s.io` | API server: or `gateway.networking.k8s.io` |
 | `spec.target.ref.kind` | enum | `XBackend` | API server: or `Gateway`. The pair must be `XBackend` in `agentic.networking.x-k8s.io` or `Gateway` in `gateway.networking.k8s.io` |
-| `spec.target.ref.name` | string | required | the backend or gateway name |
+| `spec.target.ref.name` | string | required | the backend or gateway name. The default-deny anchor on each managed cluster must target the same resource; see [operations.md](operations.md#install) |
 | `spec.permissions[].tool` | string | required | API server: 1–16 unique tools; `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, at most 20 characters (upstream params limit). Re-checked by the renderer |
 | `spec.lease.required` | bool | `true` | `false` grants every permission to every subject without a lease (standing access) |
 | `spec.lease.defaultDuration` | duration | `15m` | used when a lease omits `duration`. API server: at least `10s` and at most `maxDuration`. The API server fills in `15m` when the field is omitted, so a policy with a `maxDuration` below `15m` must also set `defaultDuration`, or it is rejected |
@@ -73,7 +74,7 @@ Reasons in `status.clusters[]`:
 | `Applying` | no | the work agent has not applied the current ManifestWork generation |
 | `AwaitingAcceptance` | no | the enforcement controller has not accepted the object yet, or OCM's status feedback has not reported the current content digest |
 | `Drifted` | no | the delivered object was deleted or changed on the cluster; FleetPermit has asked OCM to re-apply it |
-| `Revoking` | no | the cluster left the placement (or its grants are being withdrawn) and its ManifestWork still exists or is being deleted. A cluster that is offline can stay here indefinitely |
+| `Revoking` | no | the cluster left the placement, or the placement was deleted, and its ManifestWork still exists or is being deleted. The withdrawal completes only when the work agent has removed the content, so it waits while the cluster is offline |
 | `DeliveryFailed` | no | rendering failed, the hub rejected the ManifestWork, or another policy owns a ManifestWork with the same name |
 | `ApplyFailed` | no | the work agent could not apply the ManifestWork |
 | `RejectedByEnforcement` | no | the enforcement controller rejected the object |
@@ -133,12 +134,16 @@ Reasons on `ToolAccessLease` conditions. Rows marked "policy" are `FleetAccessPo
 | `PermissionNotAllowed` | Denied=True | a requested tool is not in the policy (the message lists them) |
 | `DurationExceedsMaximum` | Denied=True | the duration exceeds `maxDuration` |
 | `LeaseExpired` | Expired=True | past `expiresAt` |
-| `Revoking` | Progressing=True | grants of an expired or denied lease are still being withdrawn from the listed clusters, including clusters whose ManifestWork is still being deleted. The lease keeps listing them in `status.clusters` until the withdrawal is complete, which can take indefinitely while a cluster is offline |
+| `Revoking` | Progressing=True | grants of an expired or denied lease are still being withdrawn from the listed clusters, including clusters whose ManifestWork is still being deleted. The lease keeps listing them in `status.clusters` until the withdrawal is complete; while a cluster is offline, this can last indefinitely |
+| `Allowed` | Denied=False | the lease satisfies the policy |
+| `NotExpired` | Expired=False | the lease has not reached `expiresAt`, or it was denied before it could |
+| `Reconciled` | Progressing=False, Degraded=False (policy: also Ready=True) | nothing is in progress or failing; on a policy, every selected cluster is in the desired state |
 | `NoClustersSelected` | policy: Ready=True | the placement selects no clusters, so nothing is granted |
 | `PlacementNotFound` | policy: Ready=False, Degraded=True | the referenced Placement does not exist; every grant is withdrawn and the policy's leases wait in `Pending` (`NoEligibleClusters`) |
 
 `Denied` and `Expired` are terminal, provided only the controller can write
-`toolaccessleases/status`. A policy change that removes a lease's tool or subject denies it.
+`toolaccessleases/status`. A policy change that removes a lease's tool or subject, or lowers
+`maxDuration` below the lease's duration, denies it.
 A policy change that would allow a previously denied lease does not revive it. `Pending` is not
 terminal: a pending lease activates when a requested cluster is placed or capacity frees up, as long
 as it has not expired.
@@ -149,8 +154,8 @@ On `ManifestWork` (hub) and the rendered `XAccessPolicy` (managed clusters):
 
 | Key | On | Value |
 |---|---|---|
-| `app.kubernetes.io/managed-by` | both | `fleetpermit` |
-| `fleetpermit.github.io/policy-uid` | both (label) | source policy UID |
+| `app.kubernetes.io/managed-by` | both (label) | `fleetpermit` |
+| `fleetpermit.github.io/policy-uid` | both (label); also an annotation on the XAccessPolicy | source policy UID |
 | `fleetpermit.github.io/policy` | both | `namespace/name` of the source policy |
 | `fleetpermit.github.io/content-digest` | both | `sha256:…` of the rendered content |
 | `fleetpermit.github.io/work-digest` | ManifestWork | `sha256:…` of the generated ManifestWork spec |
@@ -160,7 +165,8 @@ On `ManifestWork` (hub) and the rendered `XAccessPolicy` (managed clusters):
 | `fleetpermit.github.io/expires-at` | XAccessPolicy | latest expiry among the rendered grants |
 
 Both objects are named `fleetpermit-<policy name>-<hash>`, where the hash is the first 16 hex
-characters of the SHA-256 of the policy's `namespace/name`. The rendered object does not carry the
+characters of the SHA-256 of the policy's `namespace/name`. If the result would be longer than 63
+characters, the name part is shortened to fit. The rendered object does not carry the
 policy's generation, so a policy edit that does not change a cluster's grants changes neither its
 content digest nor its ManifestWork, and causes no rollout. If a policy disappears without its
 finalizer running (for example because the finalizer was removed by hand), the controller finds its

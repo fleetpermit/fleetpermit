@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="life-t life-d">
   <title id="life-t">ToolAccessLease lifecycle</title>
-  <desc id="life-d">A new ToolAccessLease is checked against its policy. If the subject, tools or duration violate the policy, or the policy is deleted after the lease was evaluated, it becomes Denied, which is terminal. Otherwise it is Pending while its policy does not exist yet, or until a requested cluster is placed and has room under the upstream rule limit, and it becomes Active once a grant is rendered on at least one selected cluster; the grant is a CEL rule with request.time before the expiry timestamp. At expiresAt the Envoy gateway stops honouring the grant and the lease becomes Expired, which is also terminal, and the controller withdraws the grant. Deleting an Active lease revokes it on every cluster. expiresAt is creationTimestamp plus the effective duration: spec.duration, or for a lease without it the policy default in effect at first evaluation, which is then pinned in status. Policy changes never extend it.</desc>
+  <desc id="life-d">A new ToolAccessLease is checked against its policy. If the subject, tools or duration violate the policy, or the policy is deleted after the lease was evaluated, it becomes Denied, which is terminal. Otherwise it is Pending while its policy does not exist yet, or until a requested cluster is placed and has room under the upstream rule limit, and it becomes Active once a grant is rendered on at least one selected cluster; the grant is a CEL rule with request.time before the expiry timestamp. At expiresAt the Envoy gateway stops honouring the grant and the lease becomes Expired, which is also terminal, and the controller withdraws the grant. An Active lease becomes Denied if its policy is narrowed so that the lease no longer fits, or if the policy is deleted, and it returns to Pending if none of its requested clusters is placed any more. A Pending lease becomes Expired when its expiry passes. Deleting an Active lease revokes it on every cluster. expiresAt is creationTimestamp plus the effective duration: spec.duration, or for a lease without it the policy default in effect at first evaluation, which is then pinned in status. Policy changes never extend it.</desc>
   <defs>
     <style>
       svg { fill: #E6EDF6; }
@@ -23,8 +23,8 @@
   </defs>
 
   <rect width="1200" height="560" rx="20" fill="#0C1728"/>
-  <text class="h1" x="40" y="52">ToolAccessLease lifecycle</text>
-  <text class="sm" x="40" y="78">Four phases. Denied and Expired are terminal: to act again, create a new lease.</text>
+  <text class="h1" x="40" y="44">ToolAccessLease lifecycle</text>
+  <text class="sm" x="40" y="68">Four phases. Denied and Expired are terminal: to act again, create a new lease.</text>
 
   <!-- start -->
   <circle cx="54" cy="176" r="8" fill="#7F93B0"/>
@@ -39,9 +39,17 @@
   <text class="sm" x="122" y="216">a placed cluster with room</text>
 
   <!-- Pending → Active -->
-  <path class="wire" d="M350 176H464" marker-end="url(#life-a)"/>
-  <text class="xs" x="407" y="160" text-anchor="middle">grant rendered on</text>
-  <text class="xs" x="407" y="198" text-anchor="middle">a selected cluster</text>
+  <path class="wire" d="M350 190H464" marker-end="url(#life-a)"/>
+  <text class="xs" x="407" y="178" text-anchor="middle">grant rendered on</text>
+  <text class="xs" x="407" y="211" text-anchor="middle">a selected cluster</text>
+
+  <!-- Active → Pending -->
+  <path class="wire" d="M466 142H354" marker-end="url(#life-a)"/>
+  <text class="xs" x="410" y="132" text-anchor="middle">no placed cluster</text>
+
+  <!-- Pending → Expired -->
+  <path class="wire" d="M225 116V88H1035V112" marker-end="url(#life-a)"/>
+  <text class="xs" x="1045" y="107">expiry passes</text>
 
   <!-- Active -->
   <rect class="box" x="468" y="100" width="324" height="152" rx="14" stroke="#2DD4BF"/>
@@ -69,6 +77,11 @@
   <text class="xs" x="238" y="264">WHO, WHAT or</text>
   <text class="xs" x="238" y="282">HOW LONG fails,</text>
   <text class="xs" x="238" y="300">or policy deleted</text>
+
+  <!-- Active → Denied -->
+  <path class="wire" d="M482 252L354 340" marker-end="url(#life-a)"/>
+  <text class="xs" x="462" y="279">policy narrowed</text>
+  <text class="xs" x="462" y="296">or deleted</text>
 
   <!-- Denied -->
   <rect class="box" x="100" y="322" width="250" height="132" rx="14" stroke="#FF7A7A"/>

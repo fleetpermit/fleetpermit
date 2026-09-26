@@ -20,8 +20,9 @@ All notable changes to this project are documented here. The format follows
   `sign-release` workflow, which signed the v0.1.0 images and assets after publication.
 - OpenSSF Scorecard, CodeQL, fuzz tests, Dependabot updates, a security self-assessment and a
   project maturity page.
-- Helm chart: validates `workExecutor` (it must be `namespace/name`) and refuses more than one replica
-  without leader election, and prints installation notes (`NOTES.txt`) with the managed-cluster steps
+- Helm chart: validates `workExecutor` (it must be `namespace/name`, checked whether or not the chart
+  creates RBAC) and `watchNamespace` (a namespace name), refuses more than one replica without leader
+  election, and prints installation notes (`NOTES.txt`) with the managed-cluster steps
   and the CRD upgrade step.
 
 ### Changed
@@ -34,7 +35,8 @@ All notable changes to this project are documented here. The format follows
   deleted → calls allowed again), separate from the benchmark's `driftRecoveryMs` (rendered policy
   deleted → object restored).
 - Helm chart: cluster-scoped objects (ClusterRoles and bindings) carry the release name unless the
-  release is called `fleetpermit`, so several releases can share a hub.
+  release is called `fleetpermit`, so several releases can share a hub, each installed in its own
+  namespace with a different `watchNamespace`.
 - The narrated demo's default lease is 40 s instead of 45 s.
 - `make demo-videos` copies the casts into `demo/recordings/` and, when `../fleetpermit.github.io` is
   a checkout of the website, copies the MP4 videos and poster images there too.
@@ -58,14 +60,15 @@ All notable changes to this project are documented here. The format follows
 - Lease status writes are conditional on the resource version that was read; a conflict is retried
   and shows as a reconcile error.
 - `fleetpermit_placement_changes_total` counts the changes this controller process observes.
-- `status.clusters` on a policy holds at most 512 entries, with clusters that are not ready first;
-  the `Ready` message says how many are listed.
+- `status.clusters` on a policy holds at most 512 entries. Only when more clusters would be listed
+  are the clusters that are not ready listed first, and the `Ready` message says how many are listed.
 
 ### Fixed
 
 - Security: a lease that omitted `duration` took the policy's current `defaultDuration` on every
   reconcile, so raising the default extended leases that had already been issued. The first recorded
-  expiry is now pinned; later policy changes can only shorten or deny a lease. Found in code review.
+  expiry is now pinned: later policy changes can never extend it, and lowering `maxDuration` below it
+  denies the lease. Found in code review.
 - Security: FleetPermit could overwrite a ManifestWork owned by another policy if their names
   collided. Names now carry a 64-bit hash, and FleetPermit never modifies a ManifestWork that another
   policy owns.

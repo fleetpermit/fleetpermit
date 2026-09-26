@@ -56,8 +56,8 @@ Placement(Decision)┘            │
 ```
 
 The reconciler is keyed by `FleetAccessPolicy`. Lease, `PlacementDecision`, `Placement` and
-`ManifestWork` events map back to the policies they affect, and `ManagedCluster` events do so only when
-a cluster's availability changes. Every decision about a policy is made from one consistent snapshot.
+`ManifestWork` events map back to the policies they affect. `ManagedCluster` events do so only when a
+cluster is created or deleted, or its `Available` condition changes. Every decision about a policy is made from one consistent snapshot.
 The reconciler requeues at the next lease expiry and at least every two minutes. With
 `--watch-namespace`, policies and events outside that namespace are ignored.
 
@@ -104,8 +104,8 @@ spec:
 ```
 
 The object name is `fleetpermit-<policy name>-<hash>`, where the hash is the first 16 hex characters
-(64 bits) of the SHA-256 of the policy's `namespace/name`. The ManifestWork on the hub uses the same
-name. Rule names carry a 10-character hash of the subject or the lease UID.
+(64 bits) of the SHA-256 of the policy's `namespace/name`. If the result would be longer than 63
+characters, the name part is shortened to fit. The ManifestWork on the hub uses the same name. Rule names carry a 10-character hash of the subject or the lease UID.
 
 The session rule uses the upstream option `MATCH_BASE_PROTOCOL_METHODS`. In kube-agentic-networking
 v0.2.0 it allows `initialize`, `tools/list`, `ping`, every method under `completion/`, `logging/` and
@@ -127,15 +127,17 @@ subject, expiry or target changes it.
 `readyClusters`, `clusterSummary` (`2/2`) and `activeLeases`; one entry per selected cluster with a
 reason and the desired content digest, plus one entry, reason `Revoking`, for each cluster that left
 the placement until its ManifestWork is gone. A cluster is `Ready` only when OCM's status feedback
-reports the content digest the hub delivered. The list holds at most 512 entries, with clusters that
-are not ready first; the per-cluster reasons are listed in [api.md](api.md#fleetaccesspolicy).
+reports the content digest the hub delivered. The list is sorted by name and holds at most 512
+entries; only when more clusters would be listed are the clusters that are not ready listed first, and
+the `Ready` message then says how many are listed. The per-cluster reasons are listed in
+[api.md](api.md#fleetaccesspolicy).
 
 `ToolAccessLease.status`: `Ready`, `Progressing`, `Degraded`, `Expired` and `Denied` conditions; a
 `phase` summary (`Pending`, `Active`, `Expired`, `Denied`); `expiresAt`; and `clusters`, the clusters
 the grant is rendered for. Delivery to those clusters may still be in progress until the lease is
 `Ready`. After expiry or denial, `clusters` lists the clusters the grant is still being withdrawn from,
 including clusters whose ManifestWork is still being deleted, and it becomes empty when withdrawal is
-complete. While a cluster is offline, that can take indefinitely.
+complete. While a cluster is offline, this can last indefinitely.
 
 ## Failure behaviour
 

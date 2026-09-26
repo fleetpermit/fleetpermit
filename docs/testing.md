@@ -39,7 +39,8 @@ Every layer runs from a clean clone with `make`. CI calls the same targets.
 | RBAC | controller ServiceAccount | cannot create pods, read secrets, create cluster role bindings, delete namespaces or update leases; can create ManifestWork and list PlacementDecisions |
 | METRICS | metrics endpoint | every `fleetpermit_*` metric present |
 
-Run a subset with `test/e2e/run.sh S1 S5 S11`. Some scenarios depend on others. R1 deletes the lease
+Run a subset with `test/e2e/run.sh S5 S11`; each of those creates and removes its own leases (S5 also
+runs S13, and S11 also runs S12). Some scenarios depend on others. R1 deletes the lease
 that S1 creates, and S2, S3 and S6 are only meaningful while that lease is active. S10 (on
 cluster-west) and S15 (on cluster-east) use the lease that S7 leaves in place. Run the full suite, or
 run those groups together (`S1 S6 S2 S3 R1`, `S7 S10 S15`). The probe responses that decided each
@@ -71,8 +72,10 @@ The lab and the runner only use the kubeconfig in `.work/lab/kubeconfig` and con
 `make conformance` runs the kube-agentic-networking v0.2.0 conformance suite, unmodified, from the
 upstream repository at the pinned tag, against the enforcement path on a lab cluster. It records the
 per-test results and a summary in `test-results/conformance/`. It declares
-`SupportAccessPolicySPIFFESource`, because FleetPermit relies on SPIFFE source matching. External
-authorization tests are skipped because FleetPermit does not use that feature.
+`SupportAccessPolicySPIFFESource`, because FleetPermit relies on SPIFFE source matching. Three tests
+are skipped because they need `SupportAccessPolicyExternalAuth`, which FleetPermit does not declare
+because it does not use external authorization: `XAccessPolicyExtAuthAccepted`,
+`XAccessPolicyExtAuthLimit` and `XAccessPolicyEvaluationLogic`.
 
 The v0.2.0 suite deploys `quickstart-everything-mcp:main` from the upstream staging registry, which
 does not publish that image (the repository has no tags). The script builds it from the upstream

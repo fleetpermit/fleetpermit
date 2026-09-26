@@ -202,8 +202,10 @@ conflict, and delivery waited for the next progress requeue.
 no optimistic lock: it owns those fields, and the work agent owns status. A delivery failure is
 retried after 1 second, then after 2, 4, 8 seconds and so on up to 2 minutes while it persists; any
 reconcile without a failure resets the delay (v0.1.1). If the ManifestWork's other spec fields (delete
-option, update strategy, executor) were changed on the hub, the same patch restores them. The regression test `TestDeliveryIsNotBlockedByConcurrentStatusWrites`
-rewrites status every 10 ms while a lease is created, and requires delivery within 3 seconds.
+option, update strategy, executor) were changed on the hub, the same patch restores them. The
+regression test `TestDeliveryIsNotBlockedByConcurrentStatusWrites` rewrites status every 10 ms while a
+lease is created, and fails if delivery takes longer than 15 seconds, a loose bound so that it holds
+on slow CI runners.
 
 **Result.** The switch to merge patches removed the `Update` conflicts, but slow first activations
 continued after controller restarts. The logs the suite captures for slow activations showed the

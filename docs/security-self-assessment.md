@@ -40,8 +40,10 @@ tool and expiry on every request.
 
 1. A policy author creates a `FleetAccessPolicy`. The API server validates it (schema and CEL).
 2. A requester creates a `ToolAccessLease`. The API server validates its schema. The controller then
-   evaluates subject membership, tool subset, maximum duration and the placement intersection.
-   Violations are recorded as terminal `Denied` conditions.
+   evaluates subject membership, tool subset and maximum duration; a violation is recorded as a
+   terminal `Denied` condition. It also intersects the requested clusters with the placement. The
+   placement never denies a lease: requested clusters outside it are ignored, and a lease with no
+   placed cluster waits in `Pending`.
 3. The controller renders rules from validated inputs only and delivers one ManifestWork per selected
    cluster. The ManifestWork carries SHA-256 content digests.
 4. The work agent applies the `XAccessPolicy`. The enforcement controller accepts it and programs Envoy.

@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/readme-hero.svg" alt="Animated overview: a permit travels from FleetPermit to cluster-east and cluster-west, where sre-agent's restart_workload call is allowed; a call from security-agent and any call to cluster-edge are denied; when the lease countdown runs out the permits dissolve and the same call is denied, until a new lease is issued." width="880">
+  <img src="docs/assets/readme-hero.svg" alt="Animated overview: a permit travels from FleetPermit to cluster-east and cluster-west, where sre-agent's calls are allowed; a call from security-agent and any call to cluster-edge are denied; when the lease countdown runs out the permits dissolve and the same call is denied, until a new lease is issued." width="880">
 </p>
 
 FleetPermit gives AI agents time-bound, fleet-wide permission to call tools. A platform team writes
@@ -183,7 +183,8 @@ incident-42   sre-remediation   2          2026-09-26T10:15:00Z   Active   1m
 A lease is `Denied`, with the reason in its conditions, if it asks for a tool the policy does not
 list, for longer than `maxDuration`, or for a subject the policy does not name. A lease created before
 its policy waits in `Pending` and activates when the policy appears, so the apply order does not
-matter; a lease whose policy is deleted after it was evaluated is denied. Provided only the controller
+matter. A lease whose policy is deleted after it was evaluated is denied, or `Expired` if its expiry
+had already passed. Provided only the controller
 can write `toolaccessleases/status`, denied and expired leases never become active again.
 A lease's spec cannot be edited after creation.
 
@@ -401,12 +402,38 @@ On every managed cluster that hosts a governed tool server (in addition to kube-
 
 ```sh
 kubectl apply -f config/managed-cluster/work-agent-rbac.yaml      # adds XAccessPolicy permissions to the OCM work agent
-kubectl apply -f config/managed-cluster/default-deny-anchor.yaml  # edit namespace/backend name first
+kubectl apply -f config/managed-cluster/default-deny-anchor.yaml  # edit namespace and targetRefs first
 ```
 
+The anchor must target the same resource as your policies' `spec.target.ref`: the shipped file
+targets an `XBackend`, and for policies that target a `Gateway` its `targetRefs` must point at that
+Gateway ([details](docs/operations.md#install)).
+
 A policy references an OCM `Placement` in its own namespace, and OCM only lets that Placement select
-clusters when a `ManagedClusterSetBinding` binds a cluster set to the namespace.
-[`config/samples`](config/samples) has a Placement, a policy and a lease to start from.
+clusters when a `ManagedClusterSetBinding` binds a cluster set to the namespace. On the hub, for
+example:
+
+```sh
+kubectl label managedcluster cluster-east cluster.open-cluster-management.io/clusterset=fleet env=production
+kubectl apply -f - <<'YAML'
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSet
+metadata: {name: fleet}
+spec: {clusterSelector: {selectorType: ExclusiveClusterSetLabel}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: fleet}
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata: {name: fleet, namespace: fleet}
+spec: {clusterSet: fleet}
+YAML
+```
+
+[`config/samples`](config/samples) has a Placement (selecting `env=production`), a policy and a lease
+to start from.
 
 Images are published to `ghcr.io/fleetpermit`, and release images and assets are signed with
 Sigstore cosign ([verifying releases](docs/operations.md#verifying-releases)). Every chart value
@@ -417,9 +444,9 @@ you can rebuild with `make images` and publish anywhere. See [docs/operations.md
 
 ```sh
 make help               # every target
-make verify             # gofmt, vet, generated code, manifests, Helm lint, secret scan
+make verify             # gofmt, vet, generated code, manifests, Helm lint, shell syntax, secret scan, license headers
 make test               # unit (race detector) + integration (real kube-apiserver via envtest)
-make benchmark          # controller scale simulation; real-cluster latency too when the lab is up
+make benchmark          # controller scale simulation, plus the real-cluster benchmark when the lab is up
 ```
 
 CI's build and test steps call these `make` targets; release publishing lives in the release
