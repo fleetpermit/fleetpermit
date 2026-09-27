@@ -329,7 +329,7 @@ expiry are summarized below it (48 in all).
 Real multi-cluster run (1 hub + 3 managed kind clusters, Kubernetes v1.35.0, OCM v1.3.1, kube-agentic-networking v0.2.0, Darwin/arm64, 2026-09-27):
 
 - **20 of 21 scenarios passed**, 0 failed, 1 not supported by the upstream API (argument-level matching).
-- **Reproduced** at commit 52d8bf7 on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36252665892)).
+- **Reproduced** at commit 4abeebb on GitHub Actions ubuntu-latest (Linux/x86_64, docker): 20 passed, 0 failed, 1 unsupported ([run logs](https://github.com/fleetpermit/fleetpermit/actions/runs/36296138490)).
 - **Decision matrix: 48 of 48 real MCP calls matched the expected outcome.**
 
 #### Test agents and expected outcomes
