@@ -81,7 +81,6 @@ spec:
                 type: object
               lease:
                 default:
-                  defaultDuration: 15m
                   maxDuration: 1h
                   required: true
                 description: Lease controls time-bound activation.
@@ -112,6 +111,8 @@ spec:
                 - message: defaultDuration must be at least 10s
                   rule: '!has(self.defaultDuration) || duration(self.defaultDuration)
                     >= duration(''10s'')'
+                - message: maxDuration must be at least 10s
+                  rule: '!has(self.maxDuration) || duration(self.maxDuration) >= duration(''10s'')'
               permissions:
                 description: Permissions is the set of tools that leases may request.
                 items:

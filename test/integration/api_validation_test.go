@@ -29,6 +29,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
 	fpv1 "github.com/fleetpermit/fleetpermit/api/v1alpha1"
@@ -80,6 +82,32 @@ func TestAPIDefaults(t *testing.T) {
 		s.Lease.MaxDuration == nil || s.Lease.MaxDuration.Duration != time.Hour {
 		t.Fatalf("unexpected defaults: %+v", s)
 	}
+
+	// A policy applied without a lease block: the stored defaults must not
+	// pin a default duration, so a later, shorter maximum is accepted.
+	applied := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "fleetpermit.github.io/v1alpha1", "kind": "FleetAccessPolicy",
+		"metadata": map[string]any{"namespace": "api-defaults", "name": "no-lease-block"},
+		"spec": map[string]any{
+			"subjects":    []any{map[string]any{"spiffeID": sreID}},
+			"placement":   map[string]any{"placementRef": map[string]any{"name": "p"}},
+			"target":      map[string]any{"namespace": "mcp-tools", "ref": map[string]any{"name": "fleet-tools"}},
+			"permissions": []any{map[string]any{"tool": "get_cluster_health"}},
+		},
+	}}
+	ctx := context.Background()
+	if err := k8s.Create(ctx, applied); err != nil {
+		t.Fatalf("policy without a lease block rejected: %v", err)
+	}
+	removeAfter(t, applied)
+	lease, _, _ := unstructured.NestedMap(applied.Object, "spec", "lease")
+	if lease["required"] != true || lease["maxDuration"] != "1h" || lease["defaultDuration"] != nil {
+		t.Fatalf("unexpected lease defaults %v", lease)
+	}
+	patch := client.RawPatch(types.MergePatchType, []byte(`{"spec":{"lease":{"maxDuration":"10m"}}}`))
+	if err := k8s.Patch(ctx, applied, patch); err != nil {
+		t.Fatalf("lowering maxDuration below 15m was rejected: %v", err)
+	}
 }
 
 func TestAPIRejectsMalformedPolicies(t *testing.T) {
@@ -117,6 +145,9 @@ func TestAPIRejectsMalformedPolicies(t *testing.T) {
 			p.Spec.Lease.DefaultDuration.Duration = time.Hour
 		}, "maxDuration must not exceed 24h"},
 		{"default below 10s", func(p *fpv1.FleetAccessPolicy) { p.Spec.Lease.DefaultDuration.Duration = time.Second }, "at least 10s"},
+		{"max below 10s", func(p *fpv1.FleetAccessPolicy) {
+			p.Spec.Lease = fpv1.LeaseSettings{MaxDuration: &metav1.Duration{Duration: 5 * time.Second}}
+		}, "maxDuration must be at least 10s"},
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

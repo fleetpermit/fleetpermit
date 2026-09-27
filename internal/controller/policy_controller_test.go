@@ -72,12 +72,12 @@ func (f *fakePlacement) Remove(_ context.Context, _ *fpv1.FleetAccessPolicy, c s
 
 // Withdraw forgets every delivery when the policy is gone (keep is empty);
 // the fake holds no deliveries of earlier policies with the same name.
-func (f *fakePlacement) Withdraw(_ context.Context, _ types.NamespacedName, keep types.UID) error {
+func (f *fakePlacement) Withdraw(_ context.Context, _ types.NamespacedName, keep types.UID) (map[string]placement.ClusterState, error) {
 	if keep == "" {
 		f.withdrawals++
 		f.delivered = nil
 	}
-	return nil
+	return nil, nil
 }
 
 func (f *fakePlacement) Observe(context.Context, *fpv1.FleetAccessPolicy) (map[string]placement.ClusterState, error) {
@@ -418,6 +418,11 @@ func TestLeaseWaitsForAMissingPolicyForAGracePeriodOnly(t *testing.T) {
 			if tc.requeue && (res.RequeueAfter <= 0 || res.RequeueAfter > policyGracePeriod) {
 				t.Fatalf("a waiting lease must be checked again when its grace period ends, requeue %s", res.RequeueAfter)
 			}
+			if tc.phase == fpv1.LeaseExpired {
+				if want := l.CreationTimestamp.Add(tc.d); got.Status.ExpiresAt == nil || !got.Status.ExpiresAt.Time.Equal(want) {
+					t.Fatalf("expiresAt %v, want the requested end %s", got.Status.ExpiresAt, want)
+				}
+			}
 		})
 	}
 }
@@ -433,13 +438,18 @@ func propagationSamples(t *testing.T) uint64 {
 
 // TestLeaseMetricsAreRecordedOnceWhenAStatusWriteConflicts checks that the
 // denied, expired and propagation metrics count a lease once even when the
-// first attempt to record its status fails and the reconcile is retried.
+// first attempt to record its status fails and the reconcile is retried,
+// for leases of an existing policy and of a missing one.
 func TestLeaseMetricsAreRecordedOnceWhenAStatusWriteConflicts(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	p := testPolicy("sre")
 	expired := newLease("a-expired", p.Name, sreID, now.Add(-20*time.Minute), 10*time.Minute)
 	ready := newLease("b-ready", p.Name, sreID, now.Add(-2*time.Minute), 10*time.Minute)
 	denied := newLease("c-denied", p.Name, "spiffe://cluster.local/ns/agents/sa/unknown", now.Add(-time.Minute), 10*time.Minute)
+	// Leases of a policy that does not exist: one past the grace period, one
+	// past its requested end.
+	orphanDenied := newLease("d-orphan-denied", "missing", sreID, now.Add(-6*time.Minute), 30*time.Minute)
+	orphanExpired := newLease("e-orphan-expired", "missing", sreID, now.Add(-2*time.Minute), time.Minute)
 	failed := map[string]bool{}
 	funcs := interceptor.Funcs{SubResourcePatch: func(ctx context.Context, c client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 		if _, isLease := obj.(*fpv1.ToolAccessLease); isLease && !failed[obj.GetName()] {
@@ -448,26 +458,32 @@ func TestLeaseMetricsAreRecordedOnceWhenAStatusWriteConflicts(t *testing.T) {
 		}
 		return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
 	}}
-	r, _ := newInterceptedReconciler(t, &fakePlacement{placed: []string{"cluster-east"}}, now, funcs, p, expired, ready, denied)
+	r, _ := newInterceptedReconciler(t, &fakePlacement{placed: []string{"cluster-east"}}, now, funcs, p, expired, ready, denied, orphanDenied, orphanExpired)
 
 	deniedBefore := testutil.ToFloat64(metrics.DeniedLeases.WithLabelValues(fpv1.ReasonSubjectNotAllowed))
+	orphanDeniedBefore := testutil.ToFloat64(metrics.DeniedLeases.WithLabelValues(fpv1.ReasonPolicyNotFound))
 	expiredBefore := testutil.ToFloat64(metrics.ExpiredLeases)
 	propagationBefore := propagationSamples(t)
-	for i := 0; ; i++ {
-		if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key(p)}); err == nil {
-			break
-		} else if i == 10 {
-			t.Fatal(err)
+	for _, k := range []types.NamespacedName{key(p), {Namespace: "fleet", Name: "missing"}} {
+		for i := 0; ; i++ {
+			if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: k}); err == nil {
+				break
+			} else if i == 10 {
+				t.Fatal(err)
+			}
 		}
 	}
-	if len(failed) != 3 {
+	if len(failed) != 5 {
 		t.Fatalf("expected one failed status write per lease, got %v", failed)
 	}
 	if got := testutil.ToFloat64(metrics.DeniedLeases.WithLabelValues(fpv1.ReasonSubjectNotAllowed)) - deniedBefore; got != 1 {
 		t.Errorf("denied leases counted %v times, want 1", got)
 	}
-	if got := testutil.ToFloat64(metrics.ExpiredLeases) - expiredBefore; got != 1 {
-		t.Errorf("expired leases counted %v times, want 1", got)
+	if got := testutil.ToFloat64(metrics.DeniedLeases.WithLabelValues(fpv1.ReasonPolicyNotFound)) - orphanDeniedBefore; got != 1 {
+		t.Errorf("leases denied for a missing policy counted %v times, want 1", got)
+	}
+	if got := testutil.ToFloat64(metrics.ExpiredLeases) - expiredBefore; got != 2 {
+		t.Errorf("expired leases counted %v times, want 2 (one per lease)", got)
 	}
 	if got := propagationSamples(t) - propagationBefore; got != 1 {
 		t.Errorf("propagation observed %d times, want 1", got)

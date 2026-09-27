@@ -40,12 +40,13 @@ Short name `fap`. The maximum authority that leases may activate.
 | `spec.permissions[].tool` | string | required | API server: 1–16 unique tools; `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, at most 20 characters (upstream params limit). Re-checked by the renderer |
 | `spec.lease.required` | bool | `true` | `false` grants every permission to every subject without a lease (standing access) |
 | `spec.lease.defaultDuration` | duration | none: `15m`, or `maxDuration` if that is shorter | used when a lease omits `duration`. API server: at least `10s` and at most `maxDuration` |
-| `spec.lease.maxDuration` | duration | `1h` | API server: at most `24h` |
+| `spec.lease.maxDuration` | duration | `1h` | API server: at least `10s` and at most `24h` |
 | `spec.enforcement.provider` | enum | `kubernetes-agentic-networking` | API server: only value |
 | `spec.enforcement.failMode` | enum | `Closed` | API server: only value; an open mode is intentionally not offered |
 
-If the whole `spec.lease` block is omitted, the API server fills in `required: true`,
-`defaultDuration: 15m` and `maxDuration: 1h`.
+If the whole `spec.lease` block is omitted, the API server fills in `required: true` and
+`maxDuration: 1h`; the default duration is then `15m`. A later change of `maxDuration` below `15m`
+lowers the default duration with it.
 
 The standing-subject limit and the target group and kind rule are new in v0.1.1. A policy created
 earlier that breaks one of them stays in place; the API server applies the rules when its spec is

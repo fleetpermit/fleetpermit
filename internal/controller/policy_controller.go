@@ -325,9 +325,16 @@ func (r *PolicyReconciler) reconcilePolicy(ctx context.Context, p *fpv1.FleetAcc
 	s.observed = observed
 	// An earlier policy with this namespace and name, deleted without its
 	// finalizer, may have left deliveries behind, including on clusters this
-	// policy is not placed on.
-	if err := r.Placement.Withdraw(ctx, key, p.UID); err != nil {
+	// policy is not placed on. Until they are gone, those clusters are
+	// reported like any other withdrawal in progress.
+	leftovers, err := r.Placement.Withdraw(ctx, key, p.UID)
+	if err != nil {
 		return ctrl.Result{}, err
+	}
+	for c, st := range leftovers {
+		if _, seen := s.observed[c]; !seen {
+			s.observed[c] = st
+		}
 	}
 
 	// 6. Report.
@@ -681,7 +688,7 @@ func (r *PolicyReconciler) reconcileMissing(ctx context.Context, key types.Names
 		return ctrl.Result{}, err
 	}
 	r.forget(key)
-	if err := r.Placement.Withdraw(ctx, key, ""); err != nil {
+	if _, err := r.Placement.Withdraw(ctx, key, ""); err != nil {
 		return ctrl.Result{}, err
 	}
 	next, err := r.updateOrphanLeases(ctx, key)
@@ -719,6 +726,8 @@ func (r *PolicyReconciler) updateOrphanLeases(ctx context.Context, key types.Nam
 		st.ClusterCount = 0
 		var record []func()
 		expire := func(at time.Time) {
+			t := metav1Time(at)
+			st.ExpiresAt = &t
 			d.Reason, d.Message = fpv1.ReasonLeaseExpired, "lease expired at "+at.UTC().Format(time.RFC3339)
 			st.Phase = fpv1.LeaseExpired
 			setCond(&st.Conditions, l.Generation, fpv1.ConditionExpired, true, d.Reason, d.Message)

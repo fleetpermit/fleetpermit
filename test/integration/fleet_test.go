@@ -25,6 +25,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1799,16 +1800,56 @@ func worksOf(t testing.TB, uid types.UID) []workv1.ManifestWork {
 	return list.Items
 }
 
+// clusterReasons records, from a watch, every reason the policy's status
+// gives for a cluster, so that a state written only briefly is not missed.
+func clusterReasons(t testing.TB, p *fpv1.FleetAccessPolicy, cluster string) func() []string {
+	t.Helper()
+	wc, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := wc.Watch(context.Background(), &fpv1.FleetAccessPolicyList{}, client.InNamespace(p.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.Stop)
+	var mu sync.Mutex
+	var reasons []string
+	go func() {
+		for ev := range w.ResultChan() {
+			pol, ok := ev.Object.(*fpv1.FleetAccessPolicy)
+			if !ok || pol.Name != p.Name {
+				continue
+			}
+			if cs := clusterStatus(pol, cluster); cs != nil {
+				mu.Lock()
+				reasons = append(reasons, cs.Reason)
+				mu.Unlock()
+			}
+		}
+	}()
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(reasons)
+	}
+}
+
 // TestPolicyRecreatedUnderTheSameNameReplacesTheEarlierWorks covers a
 // policy deleted without FleetPermit's cleanup (its finalizer removed by hand)
 // and created again under the same name before the controller saw it gone.
 // The earlier policy's works must not stay: on a cluster the new policy is
 // placed on, the new delivery replaces it; on one it is not, it is deleted.
+// The work agent holds both deletions, so the test can check what is
+// reported meanwhile: the placed cluster as Delivering, never as a delivery
+// failure; the other one as Revoking; and both as ClusterUnavailable, without
+// polling, while their agents are offline.
 func TestPolicyRecreatedUnderTheSameNameReplacesTheEarlierWorks(t *testing.T) {
 	ctx := context.Background()
 	clock := &fakeClock{t: time.Now()}
-	stop := startController(t, clock.Now)
+	stop := startControllerIn(t, clock.Now, "recreated")
 	defer func() { stop() }()
+	t.Cleanup(func() { releaseWorks(t) })
 
 	f := newFleet(t, "recreated", []string{"re-east", "re-west"}, []string{"re-east", "re-west"})
 	no := false
@@ -1825,10 +1866,15 @@ func TestPolicyRecreatedUnderTheSameNameReplacesTheEarlierWorks(t *testing.T) {
 	if err := k8s.Create(ctx, earlier); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 10*time.Second, "the earlier policy on both clusters", func() error {
-		ackWorks(t)
+	eventually(t, 10*time.Second, "the earlier policy on both clusters, held by the work agent", func() error {
+		ackWorks(t, holdDeletion)
 		if s := getPolicy(t, earlier).Status.ClusterSummary; s != "2/2" {
 			return fmt.Errorf("clusters %q", s)
+		}
+		for c, w := range works(t, earlier) {
+			if !controllerutil.ContainsFinalizer(&w, workv1.ManifestWorkFinalizer) {
+				return fmt.Errorf("%s has no finalizer yet", c)
+			}
 		}
 		return nil
 	})
@@ -1853,20 +1899,110 @@ func TestPolicyRecreatedUnderTheSameNameReplacesTheEarlierWorks(t *testing.T) {
 	if err := k8s.Create(ctx, later); err != nil {
 		t.Fatal(err)
 	}
+	eastReasons := clusterReasons(t, later, "re-east")
 
-	stop = startController(t, clock.Now)
+	stop = startControllerIn(t, clock.Now, "recreated")
+	eventually(t, 10*time.Second, "both earlier works to be deleting and reported as such", func() error {
+		for _, w := range worksOf(t, earlierUID) {
+			if w.DeletionTimestamp.IsZero() {
+				return fmt.Errorf("the earlier work on %s is not being deleted", w.Namespace)
+			}
+		}
+		pol := getPolicy(t, later)
+		east, west := clusterStatus(pol, "re-east"), clusterStatus(pol, "re-west")
+		if east == nil || east.Reason != "Delivering" || west == nil || west.Ready || west.Reason != "Revoking" {
+			return fmt.Errorf("clusters %+v", pol.Status.Clusters)
+		}
+		if pol.Status.ClusterSummary != "0/1" || !meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionProgressing) {
+			return fmt.Errorf("status %+v", pol.Status)
+		}
+		return nil
+	})
+
+	// Both agents go offline while the earlier works are held.
+	setClusterAvailable(t, "re-east", false)
+	setClusterAvailable(t, "re-west", false)
+	eventually(t, 10*time.Second, "both clusters to be reported unavailable", func() error {
+		pol := getPolicy(t, later)
+		for _, c := range []string{"re-east", "re-west"} {
+			if cs := clusterStatus(pol, c); cs == nil || cs.Reason != "ClusterUnavailable" || !strings.Contains(cs.Message, "reconnect") {
+				return fmt.Errorf("%s status %+v", c, cs)
+			}
+		}
+		if meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionProgressing) ||
+			!meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionDegraded) {
+			return fmt.Errorf("conditions %+v", pol.Status.Conditions)
+		}
+		return nil
+	})
+	before := reconciles()
+	time.Sleep(15 * time.Second)
+	if n := reconciles() - before; n > 1 {
+		t.Fatalf("%v reconciles in 15s while every change waits for an unavailable cluster", n)
+	}
+
+	setClusterAvailable(t, "re-east", true)
+	setClusterAvailable(t, "re-west", true)
 	eventually(t, 20*time.Second, "the earlier policy's works to be gone and the new one delivered", func() error {
+		releaseWorks(t)
 		ackWorks(t)
 		if left := worksOf(t, earlierUID); len(left) != 0 {
 			return fmt.Errorf("%d works of the earlier policy remain, the first on %s", len(left), left[0].Namespace)
 		}
 		pol := getPolicy(t, later)
-		if pol.Status.ClusterSummary != "1/1" || !meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionReady) {
+		if pol.Status.ClusterSummary != "1/1" || clusterStatus(pol, "re-west") != nil ||
+			!meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionReady) {
 			return fmt.Errorf("new policy status %+v", pol.Status)
 		}
 		w, ok := works(t, pol)["re-east"]
 		if !ok || strings.Contains(manifestJSON(w), securityID) {
 			return fmt.Errorf("re-east must hold only the new policy's grants")
+		}
+		return nil
+	})
+	if slices.Contains(eastReasons(), "DeliveryFailed") {
+		t.Fatalf("re-east was reported as a delivery failure while the earlier work was replaced: %v", eastReasons())
+	}
+}
+
+// TestForeignWorkBeingDeletedIsADeliveryFailure checks a ManifestWork of
+// another owner that is being deleted at the policy's work name: it is a
+// delivery failure, retried with the delivery backoff, not a delivery in
+// progress polled every few seconds.
+func TestForeignWorkBeingDeletedIsADeliveryFailure(t *testing.T) {
+	ctx := context.Background()
+	stop := startController(t, time.Now)
+	defer stop()
+
+	f := newFleet(t, "foreign-deleting", []string{"fd-east"}, []string{"fd-east"})
+	p := f.policy("sre-remediation")
+	foreign := &workv1.ManifestWork{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "fd-east", Name: ocm.WorkName(p), Finalizers: []string{workv1.ManifestWorkFinalizer},
+			Labels: map[string]string{ocm.LabelManagedBy: ocm.ManagedByValue, ocm.LabelPolicyUID: "someone-else"},
+		},
+		Spec: workv1.ManifestWorkSpec{Workload: workv1.ManifestsTemplate{Manifests: []workv1.Manifest{{
+			RawExtension: runtime.RawExtension{Raw: []byte(`{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"foreign","namespace":"default"}}`)},
+		}}}},
+	}
+	if err := k8s.Create(ctx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { remove(t, foreign) })
+	if err := k8s.Delete(ctx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "a delivery failure that is not progressing", func() error {
+		pol := getPolicy(t, p)
+		cs := clusterStatus(pol, "fd-east")
+		if cs == nil || cs.Reason != "DeliveryFailed" || !strings.Contains(cs.Message, "not owned by this policy") {
+			return fmt.Errorf("fd-east status %+v", cs)
+		}
+		if meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionProgressing) {
+			return fmt.Errorf("conditions %+v", pol.Status.Conditions)
 		}
 		return nil
 	})

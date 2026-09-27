@@ -58,8 +58,9 @@ All notable changes to this project are documented here. The format follows
   Gateway target no longer needs the group spelled out.
 - `lease.defaultDuration` has no field default any more. When it is unset, a lease without a duration
   gets `15m`, or the policy's `maxDuration` if that is shorter, so a policy with a short maximum no
-  longer needs to set `defaultDuration`. An omitted `lease` block still defaults to
-  `{required: true, defaultDuration: 15m, maxDuration: 1h}`.
+  longer needs to set `defaultDuration`. An omitted `lease` block defaults to
+  `{required: true, maxDuration: 1h}`, so a later lower `maxDuration` is accepted too.
+  `maxDuration` must be at least 10 s.
 - The controller adds and removes its finalizer with a merge patch that leaves the spec alone, so its
   role has `patch` instead of `update` on `fleetaccesspolicies`.
 - An active lease's `status.clusters` also lists clusters that left the placement and are still being

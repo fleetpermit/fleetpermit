@@ -73,6 +73,17 @@ func withoutDigest(w *workv1.ManifestWork) *workv1.ManifestWork {
 	return w
 }
 
+// withFeedback adds another status feedback value to every manifest, as an
+// extra feedback rule on the ManifestWork would.
+func withFeedback(w *workv1.ManifestWork, name, value string) *workv1.ManifestWork {
+	for i := range w.Status.ResourceStatus.Manifests {
+		v := value
+		m := &w.Status.ResourceStatus.Manifests[i]
+		m.StatusFeedbacks.Values = append(m.StatusFeedbacks.Values, workv1.FeedbackValue{Name: name, Value: workv1.FieldValue{Type: workv1.String, String: &v}})
+	}
+	return w
+}
+
 func TestWorkState(t *testing.T) {
 	yes, no := metav1.ConditionTrue, metav1.ConditionFalse
 	cases := []struct {
@@ -88,6 +99,8 @@ func TestWorkState(t *testing.T) {
 		{"no feedback yet", work(1, &yes, 1, ""), false, ReasonAwaitingAcceptance},
 		{"rejected by enforcement", work(1, &yes, 1, "False"), false, ReasonRejected},
 		{"accepted but no digest reported", withoutDigest(work(1, &yes, 1, "True")), false, ReasonAwaitingAcceptance},
+		{"acceptance reported twice", withFeedback(work(1, &yes, 1, "False"), FeedbackAccepted, "True"), false, ReasonAwaitingAcceptance},
+		{"digest reported twice", withFeedback(work(1, &yes, 1, "True"), FeedbackDigest, "sha256:abc"), false, ReasonAwaitingAcceptance},
 		{"enforced", work(1, &yes, 1, "True"), true, ReasonEnforced},
 	}
 	for _, tc := range cases {
@@ -172,11 +185,8 @@ func TestDriftDetection(t *testing.T) {
 	if Drift(edited) == "" {
 		t.Fatal("a digest mismatch must be reported as drift")
 	}
-	same := w.DeepCopy()
-	d := "sha256:abc"
-	same.Status.ResourceStatus.Manifests[0].StatusFeedbacks.Values = append(same.Status.ResourceStatus.Manifests[0].StatusFeedbacks.Values,
-		workv1.FeedbackValue{Name: FeedbackDigest, Value: workv1.FieldValue{Type: workv1.String, String: &d}})
-	if Drift(same) != "" || !WorkState(same).Ready {
+	// work() reports the matching digest.
+	if Drift(w) != "" || !WorkState(w).Ready {
 		t.Fatal("a matching digest is not drift")
 	}
 }
@@ -221,6 +231,19 @@ func fakeProvider(t *testing.T, objs ...client.Object) (*Provider, client.Client
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithIndex(&workv1.ManifestWork{}, IndexPolicy, workPolicy).WithObjects(objs...).Build()
 	return &Provider{Client: c}, c
+}
+
+func managedCluster(name string, available bool) *clusterv1.ManagedCluster {
+	status := metav1.ConditionTrue
+	if !available {
+		status = metav1.ConditionUnknown
+	}
+	return &clusterv1.ManagedCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Status: clusterv1.ManagedClusterStatus{Conditions: []metav1.Condition{
+			{Type: clusterv1.ManagedClusterConditionAvailable, Status: status, Reason: "Test"},
+		}},
+	}
 }
 
 func workNames(t *testing.T, c client.Client) []string {
@@ -358,6 +381,14 @@ func TestApplyRestoresTamperedWorkSpec(t *testing.T) {
 				UpdateStrategy:     &workv1.UpdateStrategy{Type: workv1.UpdateStrategyTypeReadOnly},
 			})
 		},
+		"extra feedback path": func(w *workv1.ManifestWork) {
+			rule := &w.Spec.ManifestConfigs[0].FeedbackRules[0]
+			rule.JsonPaths = append(rule.JsonPaths, workv1.JsonPath{Name: FeedbackAccepted, Path: ".metadata.name"})
+		},
+		"extra feedback rule": func(w *workv1.ManifestWork) {
+			mc := &w.Spec.ManifestConfigs[0]
+			mc.FeedbackRules = append(mc.FeedbackRules, workv1.FeedbackRule{Type: workv1.WellKnownStatusType})
+		},
 		"deletion TTL": func(w *workv1.ManifestWork) {
 			ttl := int64(1)
 			w.Spec.DeleteOption.TTLSecondsAfterFinished = &ttl
@@ -406,22 +437,28 @@ func TestObserveReportsWorksBeingDeleted(t *testing.T) {
 	}
 }
 
+func annotatedWork(cluster, name, owner, policy string) *workv1.ManifestWork {
+	w := ownedWork(cluster, name, owner)
+	w.Annotations = map[string]string{AnnotationPolicy: policy}
+	return w
+}
+
 func TestWithdrawDeletesOnlyTheMissingPolicysWorks(t *testing.T) {
-	annotated := func(cluster, name, owner, policy string) *workv1.ManifestWork {
-		w := ownedWork(cluster, name, owner)
-		w.Annotations = map[string]string{AnnotationPolicy: policy}
-		return w
-	}
 	o, c := fakeProvider(t,
-		annotated("cluster-east", "fleetpermit-sre-1", "policy-a", "team-a/sre"),
-		annotated("cluster-west", "fleetpermit-sre-1", "policy-a", "team-a/sre"),
-		annotated("cluster-east", "fleetpermit-other-1", "policy-b", "team-a/other"),
-		annotated("cluster-east", "fleetpermit-sre-2", "policy-c", "team-b/sre"),
+		annotatedWork("cluster-east", "fleetpermit-sre-1", "policy-a", "team-a/sre"),
+		annotatedWork("cluster-west", "fleetpermit-sre-1", "policy-a", "team-a/sre"),
+		annotatedWork("cluster-east", "fleetpermit-other-1", "policy-b", "team-a/other"),
+		annotatedWork("cluster-east", "fleetpermit-sre-2", "policy-c", "team-b/sre"),
+		// Annotated for the policy but not FleetPermit's: another name, or a
+		// namespace that is not a managed cluster's.
+		annotatedWork("cluster-east", "not-fleetpermit", "policy-a", "team-a/sre"),
+		annotatedWork("default", "fleetpermit-sre-1", "policy-a", "team-a/sre"),
+		managedCluster("cluster-east", true), managedCluster("cluster-west", true),
 	)
-	if err := o.Withdraw(context.Background(), types.NamespacedName{Namespace: "team-a", Name: "sre"}, ""); err != nil {
+	if _, err := o.Withdraw(context.Background(), types.NamespacedName{Namespace: "team-a", Name: "sre"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"cluster-east/fleetpermit-other-1", "cluster-east/fleetpermit-sre-2"}
+	want := []string{"cluster-east/fleetpermit-other-1", "cluster-east/fleetpermit-sre-2", "cluster-east/not-fleetpermit", "default/fleetpermit-sre-1"}
 	if got := workNames(t, c); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("remaining works:\n got %v\nwant %v", got, want)
 	}
@@ -445,7 +482,11 @@ func TestApplyReplacesTheWorkOfAnEarlierPolicyWithTheSameName(t *testing.T) {
 	earlier.Annotations = map[string]string{AnnotationPolicy: "team-a/sre"}
 	unrelated := ownedWork("cluster-west", WorkName(p), "policy-other")
 	unrelated.Annotations = map[string]string{AnnotationPolicy: "team-b/sre"}
-	o, c := fakeProvider(t, earlier, unrelated)
+	// A work that looks like an earlier delivery, in a namespace that is
+	// not a managed cluster's: it is not deleted.
+	outside := ownedWork("default", WorkName(p), "policy-old")
+	outside.Annotations = map[string]string{AnnotationPolicy: "team-a/sre"}
+	o, c := fakeProvider(t, earlier, unrelated, outside, managedCluster("cluster-east", true), managedCluster("cluster-west", true))
 
 	if err := o.Apply(ctx, p, "cluster-east", applyResult()); !errors.Is(err, placement.ErrStillDeleting) {
 		t.Fatalf("Apply over an earlier policy's work returned %v, want ErrStillDeleting", err)
@@ -460,47 +501,79 @@ func TestApplyReplacesTheWorkOfAnEarlierPolicyWithTheSameName(t *testing.T) {
 	if err := c.Get(ctx, client.ObjectKeyFromObject(unrelated), &workv1.ManifestWork{}); err != nil {
 		t.Fatalf("another policy's work was touched: %v", err)
 	}
+	if err := o.Apply(ctx, p, "default", applyResult()); err == nil || errors.Is(err, placement.ErrStillDeleting) {
+		t.Fatalf("Apply in a namespace that is not a managed cluster's returned %v, want a refusal", err)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(outside), &workv1.ManifestWork{}); err != nil {
+		t.Fatalf("a work outside the managed clusters' namespaces was deleted: %v", err)
+	}
 }
 
-// TestApplyReportsAWorkBeingDeletedAsInProgress checks that a ManifestWork
-// that is being deleted is reported as such whoever owned it, so deleting and
-// re-creating a policy shows delivery in progress, not a failure.
+// TestApplyReportsAWorkBeingDeletedAsInProgress checks that the policy's
+// own ManifestWork, or one an earlier policy with the same name left behind,
+// that is being deleted is reported as delivery in progress, so deleting and
+// re-creating a policy is not shown as a failure.
 func TestApplyReportsAWorkBeingDeletedAsInProgress(t *testing.T) {
 	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-new"}}
 	deleting := ownedWork("cluster-east", WorkName(p), "policy-old")
+	deleting.Annotations = map[string]string{AnnotationPolicy: "team-a/sre"}
 	now := metav1.Now()
 	deleting.DeletionTimestamp = &now
 	deleting.Finalizers = []string{workv1.ManifestWorkFinalizer}
-	o, _ := fakeProvider(t, deleting)
+	o, _ := fakeProvider(t, deleting, managedCluster("cluster-east", true))
 	if err := o.Apply(context.Background(), p, "cluster-east", applyResult()); !errors.Is(err, placement.ErrStillDeleting) {
 		t.Fatalf("Apply returned %v, want ErrStillDeleting", err)
 	}
 
 	// Only the work agent completes the deletion: on a cluster that is not
 	// available, delivery waits for it to reconnect.
-	offline := &clusterv1.ManagedCluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-east"}}
-	offline.Status.Conditions = []metav1.Condition{{Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionUnknown, Reason: "Lost"}}
-	o, _ = fakeProvider(t, deleting, offline)
+	o, _ = fakeProvider(t, deleting, managedCluster("cluster-east", false))
 	if err := o.Apply(context.Background(), p, "cluster-east", applyResult()); !errors.Is(err, placement.ErrClusterUnavailable) {
 		t.Fatalf("Apply on an unavailable cluster returned %v, want ErrClusterUnavailable", err)
 	}
 }
 
-func TestWithdrawKeepsTheCurrentPolicysWorks(t *testing.T) {
-	annotated := func(cluster, name, owner string) *workv1.ManifestWork {
-		w := ownedWork(cluster, name, owner)
-		w.Annotations = map[string]string{AnnotationPolicy: "team-a/sre"}
-		return w
+// TestApplyRefusesAForeignWorkBeingDeleted checks that a ManifestWork of
+// another owner is refused even while it is being deleted: that is a
+// delivery failure, retried with the delivery backoff, not delivery in
+// progress.
+func TestApplyRefusesAForeignWorkBeingDeleted(t *testing.T) {
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-new"}}
+	foreign := ownedWork("cluster-east", WorkName(p), "someone-else")
+	now := metav1.Now()
+	foreign.DeletionTimestamp = &now
+	foreign.Finalizers = []string{workv1.ManifestWorkFinalizer}
+	o, _ := fakeProvider(t, foreign, managedCluster("cluster-east", true))
+	err := o.Apply(context.Background(), p, "cluster-east", applyResult())
+	if err == nil || errors.Is(err, placement.ErrStillDeleting) || !strings.Contains(err.Error(), "not owned by this policy") {
+		t.Fatalf("Apply returned %v, want a refusal", err)
 	}
+}
+
+// TestWithdrawKeepsTheCurrentPolicysWorks checks that Withdraw deletes what
+// an earlier policy with the same name left behind, keeps the current
+// policy's works, and reports the clusters that still hold a work being
+// withdrawn, as unavailable where the cluster is.
+func TestWithdrawKeepsTheCurrentPolicysWorks(t *testing.T) {
+	held := annotatedWork("cluster-edge", "fleetpermit-sre-1", "policy-old", "team-a/sre")
+	now := metav1.Now()
+	held.DeletionTimestamp = &now
+	held.Finalizers = []string{workv1.ManifestWorkFinalizer}
 	o, c := fakeProvider(t,
-		annotated("cluster-east", "fleetpermit-sre-1", "policy-new"),
-		annotated("cluster-west", "fleetpermit-sre-1", "policy-old"),
-		annotated("cluster-edge", "fleetpermit-sre-1", "policy-old"),
+		annotatedWork("cluster-east", "fleetpermit-sre-1", "policy-new", "team-a/sre"),
+		annotatedWork("cluster-west", "fleetpermit-sre-1", "policy-old", "team-a/sre"),
+		held,
+		managedCluster("cluster-east", true), managedCluster("cluster-west", true), managedCluster("cluster-edge", false),
 	)
-	if err := o.Withdraw(context.Background(), types.NamespacedName{Namespace: "team-a", Name: "sre"}, "policy-new"); err != nil {
+	left, err := o.Withdraw(context.Background(), types.NamespacedName{Namespace: "team-a", Name: "sre"}, "policy-new")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := workNames(t, c); strings.Join(got, " ") != "cluster-east/fleetpermit-sre-1" {
-		t.Fatalf("only the current policy's work must remain, got %v", got)
+	if got := workNames(t, c); strings.Join(got, " ") != "cluster-east/fleetpermit-sre-1 cluster-edge/fleetpermit-sre-1" {
+		t.Fatalf("only the current policy's work and the one still being deleted must remain, got %v", got)
+	}
+	if len(left) != 2 || left["cluster-west"].Reason != ReasonDeleting || left["cluster-edge"].Reason != ReasonClusterUnavailable ||
+		left["cluster-west"].Ready || !strings.Contains(left["cluster-edge"].Message, "reconnect") {
+		t.Fatalf("clusters still being withdrawn from: %+v", left)
 	}
 }

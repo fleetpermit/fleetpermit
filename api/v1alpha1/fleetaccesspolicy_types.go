@@ -75,7 +75,7 @@ type FleetAccessPolicySpec struct {
 
 	// Lease controls time-bound activation.
 	// +optional
-	// +kubebuilder:default={required:true,defaultDuration:"15m",maxDuration:"1h"}
+	// +kubebuilder:default={required:true,maxDuration:"1h"}
 	Lease LeaseSettings `json:"lease,omitempty"`
 
 	// Enforcement selects how grants are enforced on each cluster.
@@ -144,6 +144,7 @@ type TargetRef struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.defaultDuration) || !has(self.maxDuration) || duration(self.defaultDuration) <= duration(self.maxDuration)",message="defaultDuration must not exceed maxDuration"
 // +kubebuilder:validation:XValidation:rule="!has(self.maxDuration) || duration(self.maxDuration) <= duration('24h')",message="maxDuration must not exceed 24h"
 // +kubebuilder:validation:XValidation:rule="!has(self.defaultDuration) || duration(self.defaultDuration) >= duration('10s')",message="defaultDuration must be at least 10s"
+// +kubebuilder:validation:XValidation:rule="!has(self.maxDuration) || duration(self.maxDuration) >= duration('10s')",message="maxDuration must be at least 10s"
 type LeaseSettings struct {
 	// Required means permissions are only usable through an active
 	// ToolAccessLease. When false, every subject holds the permissions on

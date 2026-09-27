@@ -166,21 +166,28 @@ func (o *Provider) Apply(ctx context.Context, p *fpv1.FleetAccessPolicy, cluster
 	if err != nil {
 		return fmt.Errorf("getting ManifestWork %s/%s: %w", cluster, desired.Name, err)
 	}
-	if !current.DeletionTimestamp.IsZero() {
-		return o.stillDeleting(ctx, &current)
-	}
 	// Never take over a ManifestWork that belongs to another policy: refuse
-	// and report instead of overwriting another tenant's grants. The one
-	// exception is a work that an earlier policy with this namespace and
-	// name left behind, because it was deleted without FleetPermit's
-	// cleanup: it is deleted, and replaced once it is gone.
+	// and report instead of overwriting another tenant's grants, even while
+	// it is being deleted. The one exception is a work that an earlier policy
+	// with this namespace and name left behind, because it was deleted
+	// without FleetPermit's cleanup: it is deleted, and replaced once it is
+	// gone.
 	if owner := current.Labels[LabelPolicyUID]; owner != string(p.UID) {
-		if current.Labels[LabelManagedBy] != ManagedByValue || current.Annotations[AnnotationPolicy] != p.Namespace+"/"+p.Name {
-			return fmt.Errorf("ManifestWork %s/%s exists and is not owned by this policy (owner policy UID %q); refusing to overwrite it", cluster, desired.Name, owner)
-		}
-		if err := o.deleteWork(ctx, &current); err != nil {
+		earlier, err := o.leftBehind(ctx, &current, types.NamespacedName{Namespace: p.Namespace, Name: p.Name})
+		if err != nil {
 			return err
 		}
+		if !earlier {
+			return fmt.Errorf("ManifestWork %s/%s exists and is not owned by this policy (owner policy UID %q); refusing to overwrite it", cluster, desired.Name, owner)
+		}
+		if current.DeletionTimestamp.IsZero() {
+			if err := o.deleteWork(ctx, &current); err != nil {
+				return err
+			}
+		}
+		return o.stillDeleting(ctx, &current)
+	}
+	if !current.DeletionTimestamp.IsZero() {
 		return o.stillDeleting(ctx, &current)
 	}
 	if current.Annotations[AnnotationDigest] == res.Digest &&
@@ -279,24 +286,59 @@ func workPolicy(o client.Object) []string {
 // Withdraw deletes the ManifestWorks, on every cluster, that were delivered
 // for policies with this namespace and name, except those of the policy with
 // UID keep. The UID of a policy that no longer exists is unknown, so the works
-// are found by their policy annotation.
-func (o *Provider) Withdraw(ctx context.Context, policy types.NamespacedName, keep types.UID) error {
+// are found by their policy annotation. It reports the clusters on which such
+// a work is still present, including those whose work was deleted just now,
+// until it is gone.
+func (o *Provider) Withdraw(ctx context.Context, policy types.NamespacedName, keep types.UID) (map[string]placement.ClusterState, error) {
 	var works workv1.ManifestWorkList
 	if err := o.Client.List(ctx, &works, client.MatchingLabels{LabelManagedBy: ManagedByValue},
 		client.MatchingFields{IndexPolicy: policy.String()}); err != nil {
-		return fmt.Errorf("listing ManifestWorks: %w", err)
+		return nil, fmt.Errorf("listing ManifestWorks: %w", err)
 	}
+	out := map[string]placement.ClusterState{}
 	for i := range works.Items {
 		w := &works.Items[i]
-		if w.Annotations[AnnotationPolicy] != policy.String() || !w.DeletionTimestamp.IsZero() ||
-			(keep != "" && w.Labels[LabelPolicyUID] == string(keep)) {
+		if keep != "" && w.Labels[LabelPolicyUID] == string(keep) {
 			continue
 		}
-		if err := o.deleteWork(ctx, w); err != nil {
-			return err
+		earlier, err := o.leftBehind(ctx, w, policy)
+		if err != nil {
+			return nil, err
+		}
+		if !earlier {
+			continue
+		}
+		if w.DeletionTimestamp.IsZero() {
+			if err := o.deleteWork(ctx, w); err != nil {
+				return nil, err
+			}
+		}
+		if _, seen := out[w.Namespace]; !seen {
+			out[w.Namespace] = o.leaving(ctx, w, ReasonDeleting,
+				"was left by an earlier policy with this name and is being deleted",
+				"was left by an earlier policy with this name; its withdrawal waits for the managed cluster to reconnect")
 		}
 	}
-	return nil
+	return out, nil
+}
+
+// leftBehind reports whether w is a delivery for the policy with this
+// namespace and name: FleetPermit's label, name prefix and policy annotation,
+// in the namespace of a ManagedCluster. FleetPermit deletes a ManifestWork it
+// does not own only if it passes this check.
+func (o *Provider) leftBehind(ctx context.Context, w *workv1.ManifestWork, policy types.NamespacedName) (bool, error) {
+	if w.Labels[LabelManagedBy] != ManagedByValue || !strings.HasPrefix(w.Name, "fleetpermit-") ||
+		w.Annotations[AnnotationPolicy] != policy.String() {
+		return false, nil
+	}
+	err := o.Client.Get(ctx, types.NamespacedName{Name: w.Namespace}, &clusterv1.ManagedCluster{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("getting ManagedCluster %s: %w", w.Namespace, err)
+	}
+	return true, nil
 }
 
 // deleteWork deletes w on condition that its UID is still the listed one, so
@@ -324,26 +366,21 @@ func (o *Provider) Observe(ctx context.Context, p *fpv1.FleetAccessPolicy) (map[
 	}
 	name := WorkName(p)
 	out := make(map[string]placement.ClusterState, len(works.Items))
-	leaving := func(w *workv1.ManifestWork, reason, msg, waiting string) {
-		if _, seen := out[w.Namespace]; seen {
-			return
-		}
-		st := placement.ClusterState{Cluster: w.Namespace, Reason: reason, Message: "ManifestWork " + w.Name + " " + msg}
-		if !o.clusterAvailable(ctx, w.Namespace) {
-			st.Reason, st.Message = ReasonClusterUnavailable, "ManifestWork "+w.Name+" "+waiting
-		}
-		out[w.Namespace] = st
-	}
 	for i := range works.Items {
 		w := &works.Items[i]
+		_, seen := out[w.Namespace]
 		if !w.DeletionTimestamp.IsZero() {
-			leaving(w, ReasonDeleting, "is being deleted; withdrawal from the cluster is in progress",
-				"is being deleted; withdrawal waits for the managed cluster to reconnect")
+			if !seen {
+				out[w.Namespace] = o.leaving(ctx, w, ReasonDeleting, "is being deleted; withdrawal from the cluster is in progress",
+					"is being deleted; withdrawal waits for the managed cluster to reconnect")
+			}
 			continue
 		}
 		if w.Name != name {
-			leaving(w, ReasonSuperseded, "uses an earlier name and is being replaced",
-				"uses an earlier name; its replacement waits for the managed cluster to reconnect")
+			if !seen {
+				out[w.Namespace] = o.leaving(ctx, w, ReasonSuperseded, "uses an earlier name and is being replaced",
+					"uses an earlier name; its replacement waits for the managed cluster to reconnect")
+			}
 			continue
 		}
 		st := WorkState(w)
@@ -355,6 +392,16 @@ func (o *Provider) Observe(ctx context.Context, p *fpv1.FleetAccessPolicy) (map[
 		out[w.Namespace] = st
 	}
 	return out, nil
+}
+
+// leaving is the state of a cluster whose ManifestWork w is on its way out.
+// Removing it needs the work agent, so on a cluster that is not available it
+// waits for the cluster to reconnect.
+func (o *Provider) leaving(ctx context.Context, w *workv1.ManifestWork, reason, msg, waiting string) placement.ClusterState {
+	if !o.clusterAvailable(ctx, w.Namespace) {
+		return placement.ClusterState{Cluster: w.Namespace, Reason: ReasonClusterUnavailable, Message: "ManifestWork " + w.Name + " " + waiting}
+	}
+	return placement.ClusterState{Cluster: w.Namespace, Reason: reason, Message: "ManifestWork " + w.Name + " " + msg}
 }
 
 // clusterAvailable reports whether the ManagedCluster is Available. A cluster
@@ -423,10 +470,12 @@ func WorkState(w *workv1.ManifestWork) placement.ClusterState {
 	}
 	for _, m := range manifests {
 		accepted, digest := "", ""
+		reported := map[string]int{}
 		for _, v := range m.StatusFeedbacks.Values {
 			if v.Value.String == nil {
 				continue
 			}
+			reported[v.Name]++
 			switch v.Name {
 			case FeedbackAccepted:
 				accepted = *v.Value.String
@@ -435,6 +484,12 @@ func WorkState(w *workv1.ManifestWork) placement.ClusterState {
 			}
 		}
 		switch {
+		case reported[FeedbackAccepted] > 1 || reported[FeedbackDigest] > 1:
+			// Only FleetPermit's feedback rules report these values, once
+			// each; a second value comes from an edited ManifestWork and
+			// could hide the real one.
+			st.Reason, st.Message = ReasonAwaitingAcceptance, fmt.Sprintf("%s %s reports its status feedback more than once", m.ResourceMeta.Kind, m.ResourceMeta.Name)
+			return st
 		case accepted == "":
 			st.Reason, st.Message = ReasonAwaitingAcceptance, fmt.Sprintf("%s %s has not been accepted by the enforcement controller yet", m.ResourceMeta.Kind, m.ResourceMeta.Name)
 			return st
@@ -506,18 +561,19 @@ func (o *Provider) desiredWork(p *fpv1.FleetAccessPolicy, cluster string, res en
 }
 
 // sameSpec reports whether current holds every spec field FleetPermit sets,
-// with the same value, the same executor and the same number of manifest
-// configurations, and none of the fields FleetPermit leaves unset that change
-// what the work agent does: ignored fields, condition rules, a deletion TTL or
-// selective orphaning. Other unset fields may carry server defaults. The
-// manifests are compared by sameManifests.
+// with the same value, the same executor, the same number of manifest
+// configurations with exactly the same feedback rules, and none of the fields
+// FleetPermit leaves unset that change what the work agent does: ignored
+// fields, condition rules, a deletion TTL or selective orphaning. Other unset
+// fields may carry server defaults. The manifests are compared by
+// sameManifests.
 func sameSpec(desired, current workv1.ManifestWorkSpec) bool {
 	desired.Workload, current.Workload = workv1.ManifestsTemplate{}, workv1.ManifestsTemplate{}
 	if len(current.ManifestConfigs) != len(desired.ManifestConfigs) {
 		return false
 	}
-	for _, mc := range current.ManifestConfigs {
-		if len(mc.ConditionRules) > 0 ||
+	for i, mc := range current.ManifestConfigs {
+		if len(mc.ConditionRules) > 0 || !equality.Semantic.DeepEqual(mc.FeedbackRules, desired.ManifestConfigs[i].FeedbackRules) ||
 			(mc.UpdateStrategy != nil && mc.UpdateStrategy.ServerSideApply != nil && len(mc.UpdateStrategy.ServerSideApply.IgnoreFields) > 0) {
 			return false
 		}

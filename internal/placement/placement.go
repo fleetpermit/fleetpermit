@@ -63,8 +63,9 @@ type Provider interface {
 	// Withdraw deletes everything delivered, on every cluster, for policies
 	// with this namespace and name except the one with UID keep: all of it
 	// when the policy no longer exists (keep is empty), or what an earlier
-	// policy with the same name left behind.
-	Withdraw(ctx context.Context, policy types.NamespacedName, keep types.UID) error
+	// policy with the same name left behind. It reports the clusters that
+	// still hold such content until it is gone.
+	Withdraw(ctx context.Context, policy types.NamespacedName, keep types.UID) (map[string]ClusterState, error)
 	// Observe reports every cluster that holds content for the policy,
 	// including content that is still being deleted.
 	Observe(ctx context.Context, policy *fpv1.FleetAccessPolicy) (map[string]ClusterState, error)
