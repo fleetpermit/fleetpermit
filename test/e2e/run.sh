@@ -247,16 +247,25 @@ s10() {
   [[ -n "$name" ]] || { record S10 "Drift: rendered XAccessPolicy deleted on a managed cluster" fail "recreated" "no rendered policy found" "[]"; return; }
   t0=$(now_ms)
   kc cluster-west -n "${FP_TOOLS_NAMESPACE}" delete "$name" --wait=true >/dev/null
-  local immediate missing
+  local immediate missing="" denied="not observed: the policy was restored before the gateway dropped the rule" deadline
   immediate="$(probe sre-agent cluster-west restart_workload | jq -c .)"
-  sleep 2
-  missing="$(probe sre-agent cluster-west restart_workload | jq -c .)"
-  [[ "$(jq -r .decision <<<"$missing")" == DENY || -n "$(rendered_policy cluster-west)" ]] || st=fail
+  # Watch for the anchor's DENY while the rendered policy is missing; report
+  # it only if it was actually seen.
+  deadline=$(( $(now_ms) + 15000 ))
+  while (( $(now_ms) < deadline )); do
+    missing="$(probe sre-agent cluster-west restart_workload | jq -c .)"
+    if [[ "$(jq -r .decision <<<"$missing")" == DENY ]]; then
+      denied="DENY $(( $(now_ms) - t0 ))ms after deletion"
+      break
+    fi
+    [[ -n "$(rendered_policy cluster-west)" ]] && break
+    sleep 0.25
+  done
   restored="$(wait_decision sre-agent cluster-west restart_workload ALLOW 180)" || st=fail
   local recovered=$(( $(now_ms) - t0 ))
   record S10 "Drift: rendered XAccessPolicy deleted on a managed cluster" "$st" \
-    "denied while the grant is missing (anchor), then restored from the hub" \
-    "right after deletion: $(jq -r .decision <<<"$immediate") (gateway not yet updated); 2s later: $(jq -r .decision <<<"$missing"); ALLOW restored ${recovered}ms after deletion" \
+    "restored from the hub; while the grant is missing the anchor denies, once the gateway has dropped the rule" \
+    "right after deletion: $(jq -r .decision <<<"$immediate"); while missing: ${denied}; ALLOW restored ${recovered}ms after deletion" \
     "$(arr "$immediate" "$missing" "$(cut -d' ' -f2- <<<"$restored")")" "$(jq -cn --argjson r "$recovered" '{driftRecoveryToAllowMs:$r}')"
 }
 
@@ -339,7 +348,8 @@ s11_s12() {
 a1() {
   local st=pass open closed
   kc cluster-edge -n "${FP_TOOLS_NAMESPACE}" delete xaccesspolicy fleetpermit-default-deny --wait=true >/dev/null
-  open="$(wait_decision sre-agent cluster-edge read_secret ALLOW 60)" || true
+  # The point of A1 is the open state, so it must be observed.
+  open="$(wait_decision sre-agent cluster-edge read_secret ALLOW 60)" || st=fail
   FP_CLUSTER_NAME=cluster-edge bash "${FP_ROOT}/demo/scripts/render-workloads.sh" | kc cluster-edge apply -f - >/dev/null
   closed="$(wait_decision sre-agent cluster-edge read_secret DENY 60)" || st=fail
   record A1 "Why the default-deny anchor exists (upstream behaviour without any XAccessPolicy)" "$st" \
