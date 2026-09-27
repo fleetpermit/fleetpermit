@@ -39,7 +39,9 @@ OCM_STATUS_SYNC_INTERVAL="${OCM_STATUS_SYNC_INTERVAL:-10s}"
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.5.1}"
 KAN_VERSION="${KAN_VERSION:-v0.2.0}"
 KAN_CONTROLLER_IMAGE="${KAN_CONTROLLER_IMAGE:-us-central1-docker.pkg.dev/k8s-staging-images/agentic-net/agentic-networking-controller:${KAN_VERSION}}"
-ENVOY_IMAGE="${ENVOY_IMAGE:-docker.io/envoyproxy/envoy:v1.36.6}"
+# Envoy is pinned by tag and digest (v1.36.10 carries the 1.36 security fixes).
+ENVOY_VERSION="${ENVOY_VERSION:-v1.36.10}"
+ENVOY_IMAGE="${ENVOY_IMAGE:-docker.io/envoyproxy/envoy:${ENVOY_VERSION}@sha256:3a76238cdf52c7a3e33951f44c02d694108e6481feffe6663bf9319f55ec1394}"
 METALLB_VERSION="${METALLB_VERSION:-v0.15.3}"
 
 # --- images built from this repository --------------------------------------

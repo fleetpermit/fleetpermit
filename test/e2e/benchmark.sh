@@ -89,7 +89,7 @@ for i in $(seq 1 "$EXP"); do
 done
 
 jq -s --arg gen "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg k8s "$(kc cluster-east version -o json | jq -r .serverVersion.gitVersion)" \
-  --arg ocm "${OCM_BUNDLE_VERSION}" --arg kan "${KAN_VERSION}" --arg envoy "${ENVOY_IMAGE##*:}" \
+  --arg ocm "${OCM_BUNDLE_VERSION}" --arg kan "${KAN_VERSION}" --arg envoy "${ENVOY_VERSION}" \
   --arg arch "$(uname -m)" --arg os "$(uname -s)" --arg sync "${OCM_STATUS_SYNC_INTERVAL}" '
   (group_by(.metric) | map({key: .[0].metric, value: (map(.value))}) | from_entries) as $s | {
     kind: "real-multicluster-benchmark",

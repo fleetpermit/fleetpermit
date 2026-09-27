@@ -456,7 +456,7 @@ main() {
   local k8s_server; k8s_server="$(kc cluster-east version -o json | jq -r .serverVersion.gitVersion)"
   jq -s --arg started "$STARTED" --arg finished "$finished" --arg k8s "$k8s_server" \
     --arg ocm "${OCM_BUNDLE_VERSION}" --arg kan "${KAN_VERSION}" --arg gw "${GATEWAY_API_VERSION}" \
-    --arg envoy "${ENVOY_IMAGE##*:}" --arg arch "$(uname -m)" --arg os "$(uname -s)" \
+    --arg envoy "${ENVOY_VERSION}" --arg arch "$(uname -m)" --arg os "$(uname -s)" \
     --arg engine "${CONTAINER_ENGINE}" --arg kind "$(kind version | awk '{print $2}')" \
     --arg fp "${FP_COMMIT}" --arg desc "${env_desc}" \
     --arg clusters "${FP_MANAGED_CLUSTERS}" --arg sre "$(spiffe_of sre-agent)" --arg sec "$(spiffe_of security-agent)" '{

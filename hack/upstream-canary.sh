@@ -29,7 +29,7 @@ done <<EOF2
 open-cluster-management-io/ocm ${OCM_BUNDLE_VERSION}
 kubernetes-sigs/kube-agentic-networking ${KAN_VERSION}
 kubernetes-sigs/gateway-api ${GATEWAY_API_VERSION}
-envoyproxy/envoy ${ENVOY_IMAGE##*:}
+envoyproxy/envoy ${ENVOY_VERSION}
 metallb/metallb ${METALLB_VERSION}
 EOF2
 
