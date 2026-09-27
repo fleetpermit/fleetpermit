@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -51,6 +52,8 @@ type fakePlacement struct {
 	placed      []string
 	delivered   map[string]enforcement.Result
 	withdrawals int
+	// pending lists clusters whose delivery is not acknowledged yet.
+	pending map[string]bool
 }
 
 func (f *fakePlacement) SelectedClusters(context.Context, *fpv1.FleetAccessPolicy) ([]string, error) {
@@ -83,9 +86,18 @@ func (f *fakePlacement) Withdraw(_ context.Context, _ types.NamespacedName, keep
 func (f *fakePlacement) Observe(context.Context, *fpv1.FleetAccessPolicy) (map[string]placement.ClusterState, error) {
 	out := map[string]placement.ClusterState{}
 	for c, res := range f.delivered {
-		out[c] = placement.ClusterState{Cluster: c, Ready: true, Reason: "Enforced", Digest: res.Digest}
+		out[c] = placement.ClusterState{Cluster: c, Ready: !f.pending[c], Reason: "Enforced", Digest: res.Digest}
+		if f.pending[c] {
+			out[c] = placement.ClusterState{Cluster: c, Reason: "Applying", Digest: res.Digest}
+		}
 	}
 	return out, nil
+}
+
+// Purge forgets every delivery: the fake's deletions complete at once.
+func (f *fakePlacement) Purge(context.Context, types.NamespacedName, types.UID) (map[string]placement.ClusterState, error) {
+	f.delivered = nil
+	return nil, nil
 }
 
 func newTestReconciler(t *testing.T, pl placement.Provider, now time.Time, objs ...client.Object) (*PolicyReconciler, client.Client) {
@@ -487,5 +499,80 @@ func TestLeaseMetricsAreRecordedOnceWhenAStatusWriteConflicts(t *testing.T) {
 	}
 	if got := propagationSamples(t) - propagationBefore; got != 1 {
 		t.Errorf("propagation observed %d times, want 1", got)
+	}
+}
+
+// TestFinalizeEndsTheLeasesBeforeThePolicyIsGone checks that deleting a
+// policy makes its leases terminal before its finalizer is released, so a
+// policy created again under the same name cannot inherit them, even if the
+// controller never sees the policy missing: a live lease is denied, one past
+// its recorded expiry is expired.
+func TestFinalizeEndsTheLeasesBeforeThePolicyIsGone(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	p := testPolicy("sre")
+	live := newLease("live", p.Name, sreID, now.Add(-time.Minute), 30*time.Minute)
+	ending := newLease("ending", p.Name, sreID, now.Add(-time.Minute), 2*time.Minute)
+	r, c := newTestReconciler(t, &fakePlacement{placed: []string{"cluster-east"}}, now, p, live, ending)
+	reconcileKey(t, r, key(p))
+	for _, l := range []*fpv1.ToolAccessLease{live, ending} {
+		if err := c.Get(ctx, key(l), l); err != nil {
+			t.Fatal(err)
+		}
+		if l.Status.Phase != fpv1.LeaseActive {
+			t.Fatalf("%s: phase %s, want Active before the policy is deleted", l.Name, l.Status.Phase)
+		}
+	}
+
+	// The second lease's expiry passes; the policy is deleted before the
+	// controller has recorded that.
+	later := now.Add(2 * time.Minute)
+	r.Now = func() time.Time { return later }
+	if err := c.Get(ctx, key(p), p); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Delete(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	reconcileKey(t, r, key(p))
+	if err := c.Get(ctx, key(p), p); !apierrors.IsNotFound(err) {
+		t.Fatalf("policy not finalized: %v", err)
+	}
+	for l, want := range map[*fpv1.ToolAccessLease]fpv1.LeasePhase{live: fpv1.LeaseDenied, ending: fpv1.LeaseExpired} {
+		if err := c.Get(ctx, key(l), l); err != nil {
+			t.Fatal(err)
+		}
+		if l.Status.Phase != want || len(l.Status.Clusters) != 0 {
+			t.Errorf("%s: phase %s, clusters %v when its policy was gone; want %s", l.Name, l.Status.Phase, l.Status.Clusters, want)
+		}
+	}
+}
+
+// TestLeaseGaugesCountRenderedGrants checks the documented meaning of
+// fleetpermit_active_leases and fleetpermit_authorized_clusters: grants
+// rendered for a cluster, whether or not delivery has been confirmed.
+func TestLeaseGaugesCountRenderedGrants(t *testing.T) {
+	for _, g := range []prometheus.Gauge{metrics.ActiveLeases, metrics.AuthorizedClusters} {
+		if desc := g.Desc().String(); !strings.Contains(desc, "rendered") || !strings.Contains(desc, "delivery may still be in progress") {
+			t.Errorf("the help text must say the gauge counts rendered grants: %s", desc)
+		}
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	p := testPolicy("sre")
+	l := newLease("partial", p.Name, sreID, now.Add(-time.Minute), 10*time.Minute)
+	fp := &fakePlacement{placed: []string{"cluster-east", "cluster-west"}, pending: map[string]bool{"cluster-west": true}}
+	r, c := newTestReconciler(t, fp, now, p, l)
+	reconcileKey(t, r, key(p))
+	if err := c.Get(context.Background(), key(l), l); err != nil {
+		t.Fatal(err)
+	}
+	if meta.IsStatusConditionTrue(l.Status.Conditions, fpv1.ConditionReady) {
+		t.Fatal("the lease must not be Ready while cluster-west has not confirmed delivery")
+	}
+	if got := testutil.ToFloat64(metrics.ActiveLeases); got != 1 {
+		t.Errorf("active leases %v, want 1: the lease has a rendered grant", got)
+	}
+	if got := testutil.ToFloat64(metrics.AuthorizedClusters); got != 2 {
+		t.Errorf("authorized clusters %v, want 2: both clusters have a rendered grant", got)
 	}
 }

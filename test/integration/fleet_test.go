@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/util/retry"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
@@ -2136,6 +2138,289 @@ func TestActiveLeaseListsClustersStillBeingWithdrawn(t *testing.T) {
 		ackWorks(t)
 		if got := getLease(t, l); strings.Join(got.Status.Clusters, ",") != "lw-east" {
 			return fmt.Errorf("lease clusters %v", got.Status.Clusters)
+		}
+		return nil
+	})
+}
+
+// firstRevisions watches the leases and policies in a namespace and records
+// the resource version at which each lease was first Denied, and at which the
+// named policy was first deleted. On one API server these are etcd revisions,
+// so they order writes across objects.
+func firstRevisions(t testing.TB, ns, policy string) (deniedAt func(lease string) uint64, deletedAt func() uint64) {
+	t.Helper()
+	wc, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	leases, err := wc.Watch(context.Background(), &fpv1.ToolAccessLeaseList{}, client.InNamespace(ns))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policies, err := wc.Watch(context.Background(), &fpv1.FleetAccessPolicyList{}, client.InNamespace(ns))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(leases.Stop)
+	t.Cleanup(policies.Stop)
+	var mu sync.Mutex
+	denied, deleted := map[string]uint64{}, uint64(0)
+	rv := func(o client.Object) uint64 {
+		v, _ := strconv.ParseUint(o.GetResourceVersion(), 10, 64)
+		return v
+	}
+	go func() {
+		for ev := range leases.ResultChan() {
+			if l, ok := ev.Object.(*fpv1.ToolAccessLease); ok && l.Status.Phase == fpv1.LeaseDenied {
+				mu.Lock()
+				if _, seen := denied[l.Name]; !seen {
+					denied[l.Name] = rv(l)
+				}
+				mu.Unlock()
+			}
+		}
+	}()
+	go func() {
+		for ev := range policies.ResultChan() {
+			if p, ok := ev.Object.(*fpv1.FleetAccessPolicy); ok && ev.Type == watch.Deleted && p.Name == policy {
+				mu.Lock()
+				if deleted == 0 {
+					deleted = rv(p)
+				}
+				mu.Unlock()
+			}
+		}
+	}()
+	return func(lease string) uint64 {
+			mu.Lock()
+			defer mu.Unlock()
+			return denied[lease]
+		}, func() uint64 {
+			mu.Lock()
+			defer mu.Unlock()
+			return deleted
+		}
+}
+
+// TestLeasesDoNotCarryOverToAPolicyCreatedAgain covers a policy deleted and
+// created again under the same name. Leases granted under the earlier policy
+// end with it and are never granted under the new one, for a lease with an
+// explicit duration and one that uses the policy default, whether the
+// controller processes the deletion or is down while it happens.
+func TestLeasesDoNotCarryOverToAPolicyCreatedAgain(t *testing.T) {
+	for _, down := range []bool{false, true} {
+		name := "controller running"
+		if down {
+			name = "controller down"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			ns, c := "carry-over", "co-east"
+			if down {
+				ns, c = "carry-over-down", "cd-east"
+			}
+			clock := &fakeClock{t: time.Now()}
+			stop := startController(t, clock.Now)
+			defer func() { stop() }()
+
+			f := newFleet(t, ns, []string{c}, []string{c})
+			earlier := f.policy("sre-remediation")
+			if err := k8s.Create(ctx, earlier); err != nil {
+				t.Fatal(err)
+			}
+			explicit := f.lease("explicit-duration", earlier.Name, 5*time.Minute, "restart_workload")
+			byDefault := f.lease("default-duration", earlier.Name, 0, "restart_workload")
+			byDefault.Spec.Duration = nil
+			for _, l := range []*fpv1.ToolAccessLease{explicit, byDefault} {
+				if err := k8s.Create(ctx, l); err != nil {
+					t.Fatal(err)
+				}
+				waitLeasePhase(t, l, fpv1.LeaseActive, fpv1.ReasonLeaseActive)
+			}
+			deniedAt, deletedAt := firstRevisions(t, ns, earlier.Name)
+
+			if down {
+				stop()
+				updatePolicy(t, earlier, func(cur *fpv1.FleetAccessPolicy) { controllerutil.RemoveFinalizer(cur, controller.Finalizer) })
+			}
+			if err := k8s.Delete(ctx, earlier); err != nil {
+				t.Fatal(err)
+			}
+			eventually(t, 15*time.Second, "the earlier policy to be gone", func() error {
+				ackWorks(t)
+				if err := k8s.Get(ctx, clientKey(earlier), &fpv1.FleetAccessPolicy{}); !apierrors.IsNotFound(err) {
+					return fmt.Errorf("still present: %v", err)
+				}
+				return nil
+			})
+			later := f.policy("sre-remediation")
+			if err := k8s.Create(ctx, later); err != nil {
+				t.Fatal(err)
+			}
+			if down {
+				stop = startController(t, clock.Now)
+			}
+
+			for _, l := range []*fpv1.ToolAccessLease{explicit, byDefault} {
+				waitLeasePhase(t, l, fpv1.LeaseDenied, fpv1.ReasonPolicyNotFound)
+			}
+			eventually(t, 10*time.Second, "the new policy to be delivered without the earlier leases", func() error {
+				ackWorks(t)
+				pol := getPolicy(t, later)
+				if pol.Status.ClusterSummary != "1/1" || pol.Status.ActiveLeases != 0 {
+					return fmt.Errorf("status %+v", pol.Status)
+				}
+				if body := manifestJSON(works(t, pol)[c]); strings.Contains(body, string(getLease(t, explicit).UID)) ||
+					strings.Contains(body, string(getLease(t, byDefault).UID)) {
+					return fmt.Errorf("the new policy grants an earlier lease: %s", body)
+				}
+				return nil
+			})
+			if !down {
+				// The leases ended before the earlier policy was gone.
+				eventually(t, 5*time.Second, "the watch to see the deletion", func() error {
+					if deletedAt() == 0 {
+						return fmt.Errorf("no deletion seen yet")
+					}
+					return nil
+				})
+				for _, l := range []*fpv1.ToolAccessLease{explicit, byDefault} {
+					if at := deniedAt(l.Name); at == 0 || at > deletedAt() {
+						t.Errorf("%s was denied at revision %d, after its policy was deleted at %d", l.Name, at, deletedAt())
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestWorkThatLostItsLabelIsStillManaged checks a ManifestWork that lost the
+// label the controller's cache selects on (app.kubernetes.io/managed-by): the
+// controller restores the label, and deleting the policy while the label is
+// missing still removes the work.
+func TestWorkThatLostItsLabelIsStillManaged(t *testing.T) {
+	ctx := context.Background()
+	clock := &fakeClock{t: time.Now()}
+	stop := startController(t, clock.Now)
+	defer func() { stop() }()
+
+	f := newFleet(t, "label-loss", []string{"ll-east"}, []string{"ll-east"})
+	no := false
+	p := f.policy("standing", func(p *fpv1.FleetAccessPolicy) { p.Spec.Lease.Required = &no })
+	if err := k8s.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, "the standing grant to be delivered", func() error {
+		ackWorks(t)
+		if s := getPolicy(t, p).Status.ClusterSummary; s != "1/1" {
+			return fmt.Errorf("clusters %q", s)
+		}
+		return nil
+	})
+	p = getPolicy(t, p)
+	unlabel := func() {
+		w := works(t, p)["ll-east"]
+		updateWork(t, &w, func(w *workv1.ManifestWork) { delete(w.Labels, ocm.LabelManagedBy) })
+	}
+
+	unlabel()
+	eventually(t, 10*time.Second, "the label to be restored", func() error {
+		if w, ok := works(t, p)["ll-east"]; !ok || w.Labels[ocm.LabelManagedBy] != ocm.ManagedByValue {
+			return fmt.Errorf("labels %v", w.Labels)
+		}
+		return nil
+	})
+
+	// While the controller is down, remove the label again and delete the
+	// policy: its finalizer keeps it until the controller has withdrawn it.
+	stop()
+	unlabel()
+	if err := k8s.Delete(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	stop = startController(t, clock.Now)
+	eventually(t, 20*time.Second, "the policy and its unlabelled work to be gone", func() error {
+		if left := worksOf(t, p.UID); len(left) != 0 {
+			return fmt.Errorf("%d works remain, the first in %s", len(left), left[0].Namespace)
+		}
+		if err := k8s.Get(ctx, clientKey(p), &fpv1.FleetAccessPolicy{}); !apierrors.IsNotFound(err) {
+			return fmt.Errorf("policy still present: %v", err)
+		}
+		return nil
+	})
+}
+
+// TestPolicyDeletionWaitsForWithdrawal checks that a deleted policy stays,
+// with its finalizer, until its ManifestWorks are gone (the OCM work agent
+// holds them until it has removed the delivered objects), reporting the
+// clusters it is still being withdrawn from; and that the
+// skip-withdrawal-wait annotation lets it go once the deletions are
+// requested, without waiting for confirmation.
+func TestPolicyDeletionWaitsForWithdrawal(t *testing.T) {
+	ctx := context.Background()
+	stop := startController(t, time.Now)
+	defer stop()
+	t.Cleanup(func() { releaseWorks(t) })
+
+	f := newFleet(t, "deletion-wait", []string{"dw-east"}, []string{"dw-east"})
+	waiting, escaping := f.policy("waits"), f.policy("does-not-wait")
+	for _, p := range []*fpv1.FleetAccessPolicy{waiting, escaping} {
+		if err := k8s.Create(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	eventually(t, 10*time.Second, "both policies delivered and held by the work agent", func() error {
+		ackWorks(t, holdDeletion)
+		for _, p := range []*fpv1.FleetAccessPolicy{waiting, escaping} {
+			w, ok := works(t, p)["dw-east"]
+			if !ok || !controllerutil.ContainsFinalizer(&w, workv1.ManifestWorkFinalizer) {
+				return fmt.Errorf("%s: no held work yet", p.Name)
+			}
+		}
+		return nil
+	})
+	waiting, escaping = getPolicy(t, waiting), getPolicy(t, escaping)
+	updatePolicy(t, escaping, func(cur *fpv1.FleetAccessPolicy) {
+		cur.Annotations = map[string]string{fpv1.AnnotationSkipWithdrawalWait: "true"}
+	})
+
+	for _, p := range []*fpv1.FleetAccessPolicy{waiting, escaping} {
+		if err := k8s.Delete(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	eventually(t, 10*time.Second, "the annotated policy to go while its work is still held", func() error {
+		if err := k8s.Get(ctx, clientKey(escaping), &fpv1.FleetAccessPolicy{}); !apierrors.IsNotFound(err) {
+			return fmt.Errorf("still present: %v", err)
+		}
+		if left := worksOf(t, escaping.UID); len(left) != 1 || left[0].DeletionTimestamp.IsZero() {
+			return fmt.Errorf("its work must still be held while being deleted: %d works", len(left))
+		}
+		return nil
+	})
+	withdrawing := func() error {
+		pol := &fpv1.FleetAccessPolicy{}
+		if err := k8s.Get(ctx, clientKey(waiting), pol); err != nil {
+			return fmt.Errorf("the policy must stay until its grants are withdrawn: %v", err)
+		}
+		cs := clusterStatus(pol, "dw-east")
+		ready := meta.FindStatusCondition(pol.Status.Conditions, fpv1.ConditionReady)
+		if cs == nil || cs.Reason != "Revoking" || ready == nil || ready.Reason != "Deleting" ||
+			!meta.IsStatusConditionTrue(pol.Status.Conditions, fpv1.ConditionProgressing) {
+			return fmt.Errorf("status %+v", pol.Status)
+		}
+		return nil
+	}
+	eventually(t, 10*time.Second, "the deletion to wait for the withdrawal", withdrawing)
+	time.Sleep(2 * time.Second)
+	if err := withdrawing(); err != nil {
+		t.Fatal(err)
+	}
+
+	eventually(t, 15*time.Second, "the policy to go once its work is gone", func() error {
+		releaseWorks(t)
+		if err := k8s.Get(ctx, clientKey(waiting), &fpv1.FleetAccessPolicy{}); !apierrors.IsNotFound(err) {
+			return fmt.Errorf("still present: %v", err)
 		}
 		return nil
 	})

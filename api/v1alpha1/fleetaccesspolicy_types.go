@@ -43,6 +43,13 @@ const (
 // call to a backend that has no XAccessPolicy.
 const FailModeClosed = "Closed"
 
+// AnnotationSkipWithdrawalWait, set to "true" on a FleetAccessPolicy, lets
+// its deletion complete once FleetPermit has requested the deletion of its
+// ManifestWorks, without waiting for the work agents to confirm that the
+// delivered grants are gone. It is an escape for clusters that will not come
+// back: revocation on those clusters is then not confirmed.
+const AnnotationSkipWithdrawalWait = "fleetpermit.github.io/skip-withdrawal-wait"
+
 // FleetAccessPolicySpec is the maximum authority that leases may activate.
 // +kubebuilder:validation:XValidation:rule="!has(self.lease) || !has(self.lease.required) || self.lease.required || size(self.subjects) <= 5",message="a policy with lease.required=false may list at most 5 subjects: each needs two of the enforcement layer's 10 rules"
 type FleetAccessPolicySpec struct {

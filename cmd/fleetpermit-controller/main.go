@@ -138,7 +138,7 @@ func main() {
 	r := &controller.PolicyReconciler{
 		Client:         mgr.GetClient(),
 		APIReader:      mgr.GetAPIReader(),
-		Placement:      &ocm.Provider{Client: mgr.GetClient(), Executor: executor},
+		Placement:      &ocm.Provider{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Executor: executor},
 		Renderer:       agenticnetworking.Renderer{},
 		WatchNamespace: watchNamespace,
 		Now:            time.Now,

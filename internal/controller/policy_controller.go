@@ -148,7 +148,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	}
 
 	if !policy.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, r.finalize(ctx, &policy)
+		return r.finalize(ctx, &policy)
 	}
 	if !controllerutil.ContainsFinalizer(&policy, Finalizer) {
 		if err := r.patchFinalizer(ctx, &policy, controllerutil.AddFinalizer); err != nil {
@@ -191,6 +191,9 @@ type snapshot struct {
 	// standingDropped lists the clusters on which a standing grant did not
 	// fit the enforcement layer's rule limit.
 	standingDropped []string
+	// deleting is set while the policy is being deleted and its grants are
+	// still being withdrawn.
+	deleting bool
 }
 
 func (r *PolicyReconciler) reconcilePolicy(ctx context.Context, p *fpv1.FleetAccessPolicy) (ctrl.Result, error) {
@@ -405,6 +408,10 @@ func (r *PolicyReconciler) updateLeaseStatuses(ctx context.Context, p *fpv1.Flee
 		d := s.decisions[l.UID]
 		st := l.Status.DeepCopy()
 		st.ObservedGeneration = l.Generation
+		if st.PolicyUID == "" {
+			// The lease belongs to the first policy that evaluates it.
+			st.PolicyUID = p.UID
+		}
 		wasDenied := hasTrue(l.Status.Conditions, fpv1.ConditionDenied)
 		wasExpired := hasTrue(l.Status.Conditions, fpv1.ConditionExpired)
 		wasReady := hasTrue(l.Status.Conditions, fpv1.ConditionReady)
@@ -627,7 +634,16 @@ func (r *PolicyReconciler) updatePolicyStatus(ctx context.Context, p *fpv1.Fleet
 		setCond(&st.Conditions, gen, fpv1.ConditionReady, status, reason, msg+truncated)
 	}
 	progressing := len(waiting) > 0
+	all := append(append([]string(nil), waiting...), failed...)
+	sort.Strings(all)
 	switch {
+	case s.deleting:
+		setReady(false, fpv1.ReasonDeleting, "the policy is being deleted once its grants are withdrawn from: "+strings.Join(all, ", "))
+		if len(failed) > 0 {
+			setCond(&st.Conditions, gen, fpv1.ConditionDegraded, true, fpv1.ReasonClustersFailed, "withdrawal waits for clusters that are not available: "+strings.Join(failed, ", "))
+		} else {
+			setCond(&st.Conditions, gen, fpv1.ConditionDegraded, false, fpv1.ReasonDeleting, "")
+		}
 	case s.placementErr != nil:
 		setReady(false, fpv1.ReasonPlacementNotFound, s.placementErr.Error()+"; no grants are delivered")
 		setCond(&st.Conditions, gen, fpv1.ConditionDegraded, true, fpv1.ReasonPlacementNotFound, s.placementErr.Error())
@@ -648,29 +664,63 @@ func (r *PolicyReconciler) updatePolicyStatus(ctx context.Context, p *fpv1.Fleet
 		setReady(true, fpv1.ReasonReconciled, fmt.Sprintf("%d cluster(s) in the desired state", ready))
 		setCond(&st.Conditions, gen, fpv1.ConditionDegraded, false, fpv1.ReasonReconciled, "")
 	}
-	if progressing {
+	switch {
+	case s.deleting && progressing:
+		setCond(&st.Conditions, gen, fpv1.ConditionProgressing, true, fpv1.ReasonDeleting, "withdrawing grants from: "+strings.Join(waiting, ", "))
+	case s.deleting:
+		setCond(&st.Conditions, gen, fpv1.ConditionProgressing, false, fpv1.ReasonDeleting, "withdrawal waits for clusters to reconnect")
+	case progressing:
 		setCond(&st.Conditions, gen, fpv1.ConditionProgressing, true, fpv1.ReasonRollingOut, "waiting for: "+strings.Join(waiting, ", "))
-	} else {
+	default:
 		setCond(&st.Conditions, gen, fpv1.ConditionProgressing, false, fpv1.ReasonReconciled, "no rollout in progress")
 	}
 	return progressing, r.patchPolicyStatus(ctx, p, st)
 }
 
-func (r *PolicyReconciler) finalize(ctx context.Context, p *fpv1.FleetAccessPolicy) error {
-	observed, err := r.Placement.Observe(ctx, p)
+// finalize withdraws a policy that is being deleted. Its leases end first,
+// so that a policy created again under the same name cannot inherit them.
+// The finalizer is released once none of the policy's ManifestWorks remains:
+// the OCM work agent deletes a work only after it has removed the delivered
+// objects. Until then the policy reports the clusters it is still being
+// withdrawn from. The AnnotationSkipWithdrawalWait annotation releases it
+// once the deletions are requested.
+func (r *PolicyReconciler) finalize(ctx context.Context, p *fpv1.FleetAccessPolicy) (ctrl.Result, error) {
+	key := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}
+	if _, err := r.updateOrphanLeases(ctx, key); err != nil {
+		return ctrl.Result{}, err
+	}
+	remaining, err := r.Placement.Purge(ctx, key, p.UID)
 	if err != nil {
-		return err
+		return ctrl.Result{}, err
 	}
-	for c := range observed {
-		if err := r.Placement.Remove(ctx, p, c); err != nil {
-			return err
+	if len(remaining) > 0 {
+		clusters := make([]string, 0, len(remaining))
+		for c := range remaining {
+			clusters = append(clusters, c)
 		}
+		sort.Strings(clusters)
+		if p.Annotations[fpv1.AnnotationSkipWithdrawalWait] != "true" {
+			progressing, err := r.updatePolicyStatus(ctx, p, &snapshot{observed: remaining, deleting: true})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			// A deleted work triggers a reconcile; the requeue covers works
+			// the cache does not hold. A cluster that is not available is
+			// waited for through the ManagedCluster watch.
+			if progressing {
+				return ctrl.Result{RequeueAfter: progressRequeue}, nil
+			}
+			return ctrl.Result{RequeueAfter: maxRequeue}, nil
+		}
+		log.FromContext(ctx).Info("Releasing the policy before its grants are confirmed withdrawn, as its annotation requests; "+
+			"the ManifestWorks are deleted, but their work agents have not confirmed removal on these clusters",
+			"annotation", fpv1.AnnotationSkipWithdrawalWait, "clusters", clusters)
 	}
-	r.forget(types.NamespacedName{Namespace: p.Namespace, Name: p.Name})
+	r.forget(key)
 	if controllerutil.ContainsFinalizer(p, Finalizer) {
-		return r.patchFinalizer(ctx, p, controllerutil.RemoveFinalizer)
+		return ctrl.Result{}, r.patchFinalizer(ctx, p, controllerutil.RemoveFinalizer)
 	}
-	return nil
+	return ctrl.Result{}, nil
 }
 
 // reconcileMissing handles a policy that does not exist: it withdraws what
@@ -688,7 +738,7 @@ func (r *PolicyReconciler) reconcileMissing(ctx context.Context, key types.Names
 		return ctrl.Result{}, err
 	}
 	r.forget(key)
-	if _, err := r.Placement.Withdraw(ctx, key, ""); err != nil {
+	if _, err := r.Placement.Purge(ctx, key, ""); err != nil {
 		return ctrl.Result{}, err
 	}
 	next, err := r.updateOrphanLeases(ctx, key)
@@ -773,10 +823,10 @@ func (r *PolicyReconciler) updateOrphanLeases(ctx context.Context, key types.Nam
 }
 
 // neverEvaluated reports whether a lease has never been evaluated against an
-// existing policy: it has no recorded expiry and no state other than waiting
-// for its policy.
+// existing policy: it has no recorded policy or expiry and no state other
+// than waiting for its policy.
 func neverEvaluated(l *fpv1.ToolAccessLease) bool {
-	if l.Status.ExpiresAt != nil || (l.Status.Phase != "" && l.Status.Phase != fpv1.LeasePending) {
+	if l.Status.PolicyUID != "" || l.Status.ExpiresAt != nil || (l.Status.Phase != "" && l.Status.Phase != fpv1.LeasePending) {
 		return false
 	}
 	for _, t := range []string{fpv1.ConditionDenied, fpv1.ConditionExpired, fpv1.ConditionReady} {

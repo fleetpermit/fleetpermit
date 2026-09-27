@@ -179,7 +179,7 @@ func runController(t testing.TB, restCfg *rest.Config, clock func() time.Time, w
 	r := &controller.PolicyReconciler{
 		Client:         mgr.GetClient(),
 		APIReader:      mgr.GetAPIReader(),
-		Placement:      &ocm.Provider{Client: mgr.GetClient()},
+		Placement:      &ocm.Provider{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader()},
 		Renderer:       agenticnetworking.Renderer{},
 		WatchNamespace: watchNamespace,
 		Now:            clock,

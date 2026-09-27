@@ -19,6 +19,7 @@ package ocm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sort"
 	"strconv"
@@ -37,6 +38,7 @@ import (
 	workv1 "open-cluster-management.io/api/work/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	fpv1 "github.com/fleetpermit/fleetpermit/api/v1alpha1"
 	"github.com/fleetpermit/fleetpermit/internal/enforcement"
@@ -219,6 +221,12 @@ func ownedWork(cluster, name, ownerUID string) *workv1.ManifestWork {
 
 func fakeProvider(t *testing.T, objs ...client.Object) (*Provider, client.Client) {
 	t.Helper()
+	return fakeProviderWith(t, interceptor.Funcs{}, objs...)
+}
+
+// fakeProviderWith is fakeProvider with client calls routed through funcs.
+func fakeProviderWith(t *testing.T, funcs interceptor.Funcs, objs ...client.Object) (*Provider, client.Client) {
+	t.Helper()
 	scheme := runtime.NewScheme()
 	if err := workv1.Install(scheme); err != nil {
 		t.Fatal(err)
@@ -229,7 +237,8 @@ func fakeProvider(t *testing.T, objs ...client.Object) (*Provider, client.Client
 	if err := clusterv1beta1.Install(scheme); err != nil {
 		t.Fatal(err)
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithIndex(&workv1.ManifestWork{}, IndexPolicy, workPolicy).WithObjects(objs...).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithIndex(&workv1.ManifestWork{}, IndexPolicy, workPolicy).
+		WithInterceptorFuncs(funcs).WithObjects(objs...).Build()
 	return &Provider{Client: c}, c
 }
 
@@ -291,6 +300,7 @@ func TestObserveReportsDeliveriesUnderAnEarlierName(t *testing.T) {
 		ownedWork("cluster-east", "fleetpermit-sre-0123abcd", "policy-a"),
 		ownedWork("cluster-west", "fleetpermit-sre-0123abcd", "policy-a"),
 		ownedWork("cluster-edge", "fleetpermit-sre-0123abcd", "policy-b"),
+		managedCluster("cluster-east", true), managedCluster("cluster-west", true), managedCluster("cluster-edge", true),
 	)
 	got, err := o.Observe(context.Background(), p)
 	if err != nil {
@@ -426,7 +436,7 @@ func TestObserveReportsWorksBeingDeleted(t *testing.T) {
 	now := metav1.Now()
 	deleting.DeletionTimestamp = &now
 	deleting.Finalizers = []string{workv1.ManifestWorkFinalizer}
-	o, _ := fakeProvider(t, deleting)
+	o, _ := fakeProvider(t, deleting, managedCluster("cluster-west", true))
 	got, err := o.Observe(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
@@ -575,5 +585,162 @@ func TestWithdrawKeepsTheCurrentPolicysWorks(t *testing.T) {
 	if len(left) != 2 || left["cluster-west"].Reason != ReasonDeleting || left["cluster-edge"].Reason != ReasonClusterUnavailable ||
 		left["cluster-west"].Ready || !strings.Contains(left["cluster-edge"].Message, "reconnect") {
 		t.Fatalf("clusters still being withdrawn from: %+v", left)
+	}
+}
+
+// TestSelectedClustersIgnoresWhatIsBeingDeleted checks that a Placement being
+// deleted selects no clusters, like a missing one, and that decisions being
+// deleted do not count.
+func TestSelectedClustersIgnoresWhatIsBeingDeleted(t *testing.T) {
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-a"}}
+	p.Spec.Placement.PlacementRef.Name = "production"
+	now := metav1.Now()
+	pl := &clusterv1beta1.Placement{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "production", UID: "placement-1"}}
+	decision := func(name string, deleting bool, cluster string) *clusterv1beta1.PlacementDecision {
+		d := &clusterv1beta1.PlacementDecision{ObjectMeta: metav1.ObjectMeta{
+			Namespace: "team-a", Name: name, Labels: map[string]string{clusterv1beta1.PlacementLabel: "production"},
+			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(pl, clusterv1beta1.SchemeGroupVersion.WithKind("Placement"))},
+		}}
+		if deleting {
+			d.DeletionTimestamp, d.Finalizers = &now, []string{"test.fleetpermit.github.io/hold"}
+		}
+		d.Status.Decisions = []clusterv1beta1.ClusterDecision{{ClusterName: cluster}}
+		return d
+	}
+	o, _ := fakeProvider(t, pl, decision("production-decision-1", false, "cluster-east"), decision("production-decision-2", true, "cluster-old"))
+	got, err := o.SelectedClusters(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "cluster-east" {
+		t.Fatalf("selected %v; a decision being deleted must not count", got)
+	}
+
+	deleting := pl.DeepCopy()
+	deleting.DeletionTimestamp, deleting.Finalizers = &now, []string{"test.fleetpermit.github.io/hold"}
+	o, _ = fakeProvider(t, deleting, decision("production-decision-1", false, "cluster-east"))
+	if got, err := o.SelectedClusters(context.Background(), p); !errors.Is(err, placement.ErrPlacementNotFound) || len(got) != 0 {
+		t.Fatalf("a Placement being deleted returned %v, %v; want no clusters and ErrPlacementNotFound", got, err)
+	}
+}
+
+// TestObserveRequiresAKnownAvailableCluster checks that a delivery is only
+// Ready on a ManagedCluster that exists and reports Available: a missing
+// cluster is unavailable, and one that cannot be read is of unknown
+// availability, not available.
+func TestObserveRequiresAKnownAvailableCluster(t *testing.T) {
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-a"}}
+	yes := metav1.ConditionTrue
+	enforced := func() *workv1.ManifestWork {
+		w := work(1, &yes, 1, "True")
+		w.Name, w.Labels = WorkName(p), map[string]string{LabelManagedBy: ManagedByValue, LabelPolicyUID: "policy-a"}
+		return w
+	}
+	o, _ := fakeProvider(t, enforced(), managedCluster("cluster-east", true))
+	got, err := o.Observe(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := got["cluster-east"]; !st.Ready {
+		t.Fatalf("an enforced work on an available cluster must be ready, got %+v", st)
+	}
+
+	o, _ = fakeProvider(t, enforced())
+	got, err = o.Observe(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := got["cluster-east"]; st.Ready || st.Reason != ReasonClusterUnavailable || !strings.Contains(st.Message, "does not exist") {
+		t.Fatalf("a work on a cluster that does not exist must not be ready, got %+v", st)
+	}
+
+	unreadable := interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		if _, isCluster := obj.(*clusterv1.ManagedCluster); isCluster {
+			return fmt.Errorf("connection refused")
+		}
+		return c.Get(ctx, key, obj, opts...)
+	}}
+	o, _ = fakeProviderWith(t, unreadable, enforced(), managedCluster("cluster-east", true))
+	got, err = o.Observe(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := got["cluster-east"]; st.Ready || !strings.Contains(st.Message, "availability unknown") {
+		t.Fatalf("a work on a cluster that cannot be read must not be ready, got %+v", st)
+	}
+}
+
+// TestPurgeFindsEveryWorkOfThePolicy checks that Purge deletes the works of
+// a policy matched by its UID label or its name annotation, including works
+// that lost FleetPermit's managed-by label, only if they are named as
+// FleetPermit names works and live in a managed cluster's namespace; and that
+// it reports the clusters still holding a work.
+func TestPurgeFindsEveryWorkOfThePolicy(t *testing.T) {
+	unlabelled := ownedWork("cluster-east", "fleetpermit-sre-1", "policy-a")
+	delete(unlabelled.Labels, LabelManagedBy)
+	byName := annotatedWork("cluster-west", "fleetpermit-sre-1", "", "team-a/sre")
+	delete(byName.Labels, LabelPolicyUID)
+	held := ownedWork("cluster-edge", "fleetpermit-sre-1", "policy-a")
+	now := metav1.Now()
+	held.DeletionTimestamp, held.Finalizers = &now, []string{workv1.ManifestWorkFinalizer}
+	o, c := fakeProvider(t, unlabelled, byName, held,
+		ownedWork("cluster-east", "fleetpermit-other-1", "policy-b"),
+		ownedWork("cluster-east", "renamed-sre-1", "policy-a"),
+		ownedWork("default", "fleetpermit-sre-1", "policy-a"),
+		managedCluster("cluster-east", true), managedCluster("cluster-west", true), managedCluster("cluster-edge", false),
+	)
+	left, err := o.Purge(context.Background(), types.NamespacedName{Namespace: "team-a", Name: "sre"}, "policy-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"cluster-east/fleetpermit-other-1", "cluster-east/renamed-sre-1", "cluster-edge/fleetpermit-sre-1", "default/fleetpermit-sre-1"}
+	if got := workNames(t, c); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("remaining works:\n got %v\nwant %v", got, want)
+	}
+	if len(left) != 3 || left["cluster-east"].Reason != ReasonDeleting || left["cluster-edge"].Reason != ReasonClusterUnavailable {
+		t.Fatalf("clusters still being withdrawn from: %+v", left)
+	}
+}
+
+// TestApplyRestoresAWorkThatLostItsLabel checks the delivery of a work the
+// controller's cache cannot see because it lost FleetPermit's managed-by
+// label: creating it fails as it exists, so Apply reads it from the API server
+// and restores it if it is this policy's.
+func TestApplyRestoresAWorkThatLostItsLabel(t *testing.T) {
+	ctx := context.Background()
+	p := &fpv1.FleetAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sre", UID: "policy-a"}}
+	o, server := fakeProvider(t, managedCluster("cluster-east", true))
+	if err := o.Apply(ctx, p, "cluster-east", applyResult()); err != nil {
+		t.Fatal(err)
+	}
+	key := types.NamespacedName{Namespace: "cluster-east", Name: WorkName(p)}
+	var w workv1.ManifestWork
+	if err := server.Get(ctx, key, &w); err != nil {
+		t.Fatal(err)
+	}
+	delete(w.Labels, LabelManagedBy)
+	if err := server.Update(ctx, &w); err != nil {
+		t.Fatal(err)
+	}
+
+	// The provider's client reads like the production cache, which holds
+	// only works with the managed-by label; its API reader reads the server.
+	labelledOnly := interceptor.NewClient(server.(client.WithWatch), interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if err := c.Get(ctx, key, obj, opts...); err != nil {
+				return err
+			}
+			if w, isWork := obj.(*workv1.ManifestWork); isWork && w.Labels[LabelManagedBy] != ManagedByValue {
+				return apierrors.NewNotFound(workv1.Resource("manifestworks"), key.Name)
+			}
+			return nil
+		},
+	})
+	o = &Provider{Client: labelledOnly, APIReader: server}
+	if err := o.Apply(ctx, p, "cluster-east", applyResult()); err != nil {
+		t.Fatalf("Apply over its own unlabelled work: %v", err)
+	}
+	if err := labelledOnly.Get(ctx, key, &w); err != nil {
+		t.Fatalf("the label was not restored: %v", err)
 	}
 }

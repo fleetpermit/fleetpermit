@@ -252,6 +252,14 @@ spec:
                 - Expired
                 - Denied
                 type: string
+              policyUID:
+                description: |-
+                  PolicyUID is the UID of the FleetAccessPolicy the lease was first
+                  evaluated against. The lease is only ever granted under that policy: if
+                  the policy is deleted and created again under the same name, the lease
+                  is denied. Set by the controller; only the controller should write lease
+                  status.
+                type: string
             type: object
         required:
         - spec

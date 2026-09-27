@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // LeasePhase summarises the lease conditions for kubectl output.
@@ -81,6 +82,14 @@ type ToolAccessLeaseStatus struct {
 	// Phase summarises the conditions.
 	// +optional
 	Phase LeasePhase `json:"phase,omitempty"`
+
+	// PolicyUID is the UID of the FleetAccessPolicy the lease was first
+	// evaluated against. The lease is only ever granted under that policy: if
+	// the policy is deleted and created again under the same name, the lease
+	// is denied. Set by the controller; only the controller should write lease
+	// status.
+	// +optional
+	PolicyUID types.UID `json:"policyUID,omitempty"`
 
 	// ExpiresAt is creationTimestamp plus the effective duration. For a lease
 	// without spec.duration, the effective duration is the policy default in

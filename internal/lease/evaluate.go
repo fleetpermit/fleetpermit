@@ -70,6 +70,12 @@ func Evaluate(policy *fpv1.FleetAccessPolicy, l *fpv1.ToolAccessLease, placed []
 	if policy == nil {
 		return deny(d, fpv1.ReasonPolicyNotFound, fmt.Sprintf("FleetAccessPolicy %q not found", l.Spec.PolicyRef.Name))
 	}
+	// A lease belongs to the policy it was first evaluated against, not to
+	// its name: one created again under that name is a different policy.
+	if l.Status.PolicyUID != "" && l.Status.PolicyUID != policy.UID {
+		return deny(d, fpv1.ReasonPolicyNotFound, fmt.Sprintf(
+			"FleetAccessPolicy %q was deleted and created again; the lease was granted under the earlier policy (UID %s)", policy.Name, l.Status.PolicyUID))
+	}
 
 	if !slices.ContainsFunc(policy.Spec.Subjects, func(s fpv1.Subject) bool {
 		return s.SPIFFEID == l.Spec.Subject.SPIFFEID

@@ -18,6 +18,7 @@ package lease
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -259,5 +260,24 @@ func TestDefaultDurationFollowsALowerMaximum(t *testing.T) {
 	}
 	if want := created.Add(10 * time.Minute); !d.ExpiresAt.Equal(want) {
 		t.Fatalf("ExpiresAt = %s, want %s (the policy maximum)", d.ExpiresAt, want)
+	}
+}
+
+// TestLeaseIsBoundToThePolicyUID checks that a lease evaluated against a
+// policy is denied under a policy created again with the same name, and that
+// a lease never evaluated binds to the first policy that evaluates it.
+func TestLeaseIsBoundToThePolicyUID(t *testing.T) {
+	p := policy()
+	p.UID = "policy-now"
+	now := created.Add(time.Minute)
+	if d := Evaluate(p, lease(), placed, now); !d.Active() {
+		t.Fatalf("a lease never evaluated must be granted, got %+v", d)
+	}
+	if d := Evaluate(p, lease(func(l *fpv1.ToolAccessLease) { l.Status.PolicyUID = "policy-now" }), placed, now); !d.Active() {
+		t.Fatalf("a lease bound to this policy must be granted, got %+v", d)
+	}
+	d := Evaluate(p, lease(func(l *fpv1.ToolAccessLease) { l.Status.PolicyUID = "policy-before" }), placed, now)
+	if !d.Denied || d.Reason != fpv1.ReasonPolicyNotFound || d.Active() || !strings.Contains(d.Message, "policy-before") {
+		t.Fatalf("a lease bound to an earlier policy with this name must be denied, got %+v", d)
 	}
 }

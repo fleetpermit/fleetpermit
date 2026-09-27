@@ -38,10 +38,12 @@ var (
 		Help: "Policy reconciliations that returned an error.",
 	})
 
-	// ActiveLeases is the number of leases currently granting authority.
+	// ActiveLeases is the number of leases with a grant rendered for at least
+	// one cluster. It counts desired authority: delivery to a cluster may
+	// still be in progress (the lease's Ready condition confirms it).
 	ActiveLeases = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "fleetpermit_active_leases",
-		Help: "Leases currently granting authority on at least one cluster.",
+		Help: "Leases with a grant rendered for at least one cluster; delivery may still be in progress (see the lease's Ready condition).",
 	})
 
 	// ExpiredLeases counts leases observed transitioning to Expired.
@@ -56,10 +58,13 @@ var (
 		Help: "Leases that transitioned to Denied, by reason.",
 	}, []string{"reason"})
 
-	// AuthorizedClusters is the number of (policy, cluster) pairs holding grants.
+	// AuthorizedClusters is the number of (policy, cluster) pairs with at
+	// least one grant rendered. It counts desired authority: delivery to the
+	// cluster may still be in progress (the cluster's Ready status confirms
+	// it).
 	AuthorizedClusters = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "fleetpermit_authorized_clusters",
-		Help: "Policy/cluster pairs that currently hold rendered grants.",
+		Help: "Policy/cluster pairs with at least one grant rendered; delivery may still be in progress (see the policy's per-cluster Ready status).",
 	})
 
 	// PolicyPropagation observes the time from lease creation to its first Ready

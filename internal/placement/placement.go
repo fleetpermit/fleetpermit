@@ -66,6 +66,11 @@ type Provider interface {
 	// policy with the same name left behind. It reports the clusters that
 	// still hold such content until it is gone.
 	Withdraw(ctx context.Context, policy types.NamespacedName, keep types.UID) (map[string]ClusterState, error)
+	// Purge deletes everything delivered, on every cluster, for the policy
+	// with this namespace and name (and UID, when known), finding content
+	// that normal reconciles may not see. It reports the clusters that still
+	// hold such content until it is gone.
+	Purge(ctx context.Context, policy types.NamespacedName, uid types.UID) (map[string]ClusterState, error)
 	// Observe reports every cluster that holds content for the policy,
 	// including content that is still being deleted.
 	Observe(ctx context.Context, policy *fpv1.FleetAccessPolicy) (map[string]ClusterState, error)
