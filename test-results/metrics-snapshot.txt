@@ -17,7 +17,7 @@ fleetpermit_lease_revocation_seconds_bucket{le="34"} 2
 fleetpermit_lease_revocation_seconds_bucket{le="55"} 2
 fleetpermit_lease_revocation_seconds_bucket{le="89"} 2
 fleetpermit_lease_revocation_seconds_bucket{le="+Inf"} 2
-fleetpermit_lease_revocation_seconds_sum 1.479310513
+fleetpermit_lease_revocation_seconds_sum 1.133351011
 fleetpermit_lease_revocation_seconds_count 2
 fleetpermit_placement_changes_total 0
 fleetpermit_policy_propagation_seconds_bucket{le="0.5"} 3
@@ -32,8 +32,8 @@ fleetpermit_policy_propagation_seconds_bucket{le="34"} 5
 fleetpermit_policy_propagation_seconds_bucket{le="55"} 5
 fleetpermit_policy_propagation_seconds_bucket{le="89"} 5
 fleetpermit_policy_propagation_seconds_bucket{le="+Inf"} 5
-fleetpermit_policy_propagation_seconds_sum 24.974778079999997
+fleetpermit_policy_propagation_seconds_sum 24.878922771000003
 fleetpermit_policy_propagation_seconds_count 5
 fleetpermit_reconcile_errors_total 0
 fleetpermit_reconcile_total{result="error"} 0
-fleetpermit_reconcile_total{result="success"} 60
+fleetpermit_reconcile_total{result="success"} 63

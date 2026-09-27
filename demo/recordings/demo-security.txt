@@ -16,21 +16,21 @@ FleetPermit — security boundaries
 [4/6] Malformed policies are rejected at admission
       $ kubectl apply -f bad-policy.yaml   # tool: "x') || true || ('", failMode: Open
       The FleetAccessPolicy "bad-policy" is invalid:
+      * spec.enforcement.failMode: Unsupported value: "Open": supported values: "Closed"
       * spec.permissions[0].tool: Invalid value: "x') || true || ('": spec.permissions[0].tool in body should match
       '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
-      * spec.enforcement.failMode: Unsupported value: "Open": supported values: "Closed"
       * <nil>: Invalid value: null: some validation rules were not checked because the object was invalid; correct t
       he existing errors to complete validation
 
 [5/6] A grant deleted on a managed cluster is restored from the hub
       sre-agent       cluster-west  restart_workload    ALLOWED  restart of shop/checkout accepted (simulated
       $ kubectl --context cluster-west -n mcp-tools delete xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779b9dca599
-      restored by the OCM work agent 3205ms after deletion (content digest: sha256:ef2f417d8b1ce7f3...)
+      restored by the OCM work agent 12482ms after deletion (content digest: sha256:6bea87acb6b85b6e...)
       sre-agent       cluster-west  restart_workload    ALLOWED  restart of shop/checkout accepted (simulated
 
 [6/6] Summary
       $ kubectl get toolaccesslease
       NAME                POLICY            CLUSTERS   EXPIRES-AT             STATUS   AGE
-      incident-7          sre-remediation   2          2026-09-26T15:50:54Z   Active   16s
-      one-hour            sre-remediation                                     Denied   20s
-      wants-read-secret   sre-remediation                                     Denied   25s
+      incident-7          sre-remediation   2          2026-09-27T04:58:27Z   Active   25s
+      one-hour            sre-remediation                                     Denied   29s
+      wants-read-secret   sre-remediation                                     Denied   33s

@@ -4,43 +4,43 @@
     "description": "envtest kube-apiserver + etcd on one host; simulated OCM work agent; no real managed clusters",
     "goarch": "arm64",
     "goos": "darwin",
-    "note": "activation = lease created until every cluster's ManifestWork carries the grant; ready = until the lease reports Ready after simulated acknowledgement; revocation = lease deleted until no ManifestWork carries it",
+    "note": "Activation is the time from lease creation until every cluster's ManifestWork carries the grant. Ready is the time until the lease reports Ready after simulated acknowledgement. Revocation is the time from lease deletion until no ManifestWork carries the grant.",
     "pollIntervalMs": 10
   },
-  "generatedAt": "2026-09-26T15:48:30Z",
+  "generatedAt": "2026-09-27T04:55:14Z",
   "kind": "simulated-controller-scale",
   "rows": [
     {
       "clusters": 10,
-      "activationMs": 104,
+      "activationMs": 103,
       "readyMs": 206,
-      "revocationMs": 100,
-      "reconciles": 14,
-      "reconcilesPerSecond": 45.612201214303006
+      "revocationMs": 28,
+      "reconciles": 13,
+      "reconcilesPerSecond": 55.328144586163184
     },
     {
       "clusters": 25,
-      "activationMs": 105,
-      "readyMs": 210,
-      "revocationMs": 97,
-      "reconciles": 24,
-      "reconcilesPerSecond": 78.02978055343434
+      "activationMs": 104,
+      "readyMs": 208,
+      "revocationMs": 57,
+      "reconciles": 21,
+      "reconcilesPerSecond": 79.19240072437817
     },
     {
       "clusters": 50,
-      "activationMs": 88,
-      "readyMs": 248,
-      "revocationMs": 112,
-      "reconciles": 24,
-      "reconcilesPerSecond": 66.40682689850028
+      "activationMs": 104,
+      "readyMs": 253,
+      "revocationMs": 115,
+      "reconciles": 23,
+      "reconcilesPerSecond": 62.237667386346075
     },
     {
       "clusters": 100,
-      "activationMs": 180,
-      "readyMs": 524,
-      "revocationMs": 222,
-      "reconciles": 24,
-      "reconcilesPerSecond": 32.1085393639749
+      "activationMs": 161,
+      "readyMs": 414,
+      "revocationMs": 218,
+      "reconciles": 19,
+      "reconcilesPerSecond": 30.01002377439888
     }
   ]
 }
