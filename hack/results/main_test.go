@@ -72,3 +72,97 @@ func TestLatenciesExcludeTimedOutSamples(t *testing.T) {
 		t.Fatal("a measurement with only timed-out samples must not be reported")
 	}
 }
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestGoTestSummaryCountsPackageFailures checks that a package that fails
+// without a failing test, or never reports a result, counts as a failure.
+func TestGoTestSummaryCountsPackageFailures(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "unit.jsonl")
+	writeFile(t, path, strings.Join([]string{
+		`{"Action":"start","Package":"example.com/ok"}`,
+		`{"Action":"run","Package":"example.com/ok","Test":"TestA"}`,
+		`{"Action":"pass","Package":"example.com/ok","Test":"TestA"}`,
+		`{"Action":"pass","Package":"example.com/ok"}`,
+		// A failing test: the package failure is that test.
+		`{"Action":"fail","Package":"example.com/failing","Test":"TestB"}`,
+		`{"Action":"fail","Package":"example.com/failing"}`,
+		// A panic outside a test: only the package fails.
+		`{"Action":"output","Package":"example.com/panics","Output":"panic: boom\n"}`,
+		`{"Action":"fail","Package":"example.com/panics"}`,
+		// A build failure, reported as output.
+		`{"ImportPath":"example.com/broken [example.com/broken.test]","Action":"build-fail"}`,
+		`{"Action":"output","Package":"example.com/broken","Output":"FAIL\texample.com/broken [build failed]\n"}`,
+		`{"Action":"skip","Package":"example.com/broken"}`,
+		// A run cut short.
+		`{"Action":"run","Package":"example.com/cut","Test":"TestC"}`,
+	}, "\n")+"\n")
+	s, ok, err := goTestSummary(path)
+	if err != nil || !ok {
+		t.Fatalf("summary: ok=%v err=%v", ok, err)
+	}
+	want := []string{"example.com/broken", "example.com/cut (did not finish)", "example.com/failing", "example.com/panics"}
+	if s.Passed != 1 || s.Failed != 4 || !slices.Equal(s.FailedPackages, want) {
+		t.Fatalf("got passed=%d failed=%d packages=%v; want passed=1 failed=4 packages=%v", s.Passed, s.Failed, s.FailedPackages, want)
+	}
+}
+
+func TestGoTestSummaryRejectsMalformedInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "unit.jsonl")
+	writeFile(t, path, `{"Action":"pass","Package":"example.com/ok","Test":"TestA"}`+"\n"+`{"Action":"pa`)
+	if _, _, err := goTestSummary(path); err == nil {
+		t.Fatal("a truncated event must be an error")
+	}
+}
+
+// TestCarriedForwardResultsAreMarked checks that test results and coverage
+// this run did not produce are carried forward with the date they were
+// produced, in results.json and in the generated text, and that the date
+// survives another run.
+func TestCarriedForwardResultsAreMarked(t *testing.T) {
+	root := t.TempDir()
+	res, work := filepath.Join(root, "test-results"), filepath.Join(root, ".work", "test")
+	writeFile(t, filepath.Join(res, "tests.json"), `{"unit":{"passed":3,"failed":0,"skipped":0}}`)
+	writeFile(t, filepath.Join(res, "results.json"),
+		`{"generatedAt":"2026-09-20T10:00:00Z","coverage":{"internalPackages":"80.0%","scope":"statements"}}`)
+	out := map[string]any{}
+	if err := addTestResults(out, work, res); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := out["carriedForward"].(map[string]string)
+	if c["tests"] != "2026-09-20T10:00:00Z" || c["coverage"] != "2026-09-20T10:00:00Z" {
+		t.Fatalf("carried forward %v", out["carriedForward"])
+	}
+	if md := markdown(out); !strings.Contains(md, "carried forward from 2026-09-20T10:00:00Z, not rerun") {
+		t.Fatalf("the text must say the results were not rerun:\n%s", md)
+	}
+
+	// A later run that again produces nothing keeps the original date.
+	writeJSON(filepath.Join(res, "results.json"), map[string]any{"generatedAt": "2026-09-25T10:00:00Z",
+		"coverage": out["coverage"], "carriedForward": out["carriedForward"]})
+	again := map[string]any{}
+	if err := addTestResults(again, work, res); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := again["carriedForward"].(map[string]string); c["tests"] != "2026-09-20T10:00:00Z" {
+		t.Fatalf("the carried-forward date moved: %v", again["carriedForward"])
+	}
+
+	// Results produced by this run are not marked.
+	writeFile(t, filepath.Join(work, "unit.jsonl"), `{"Action":"pass","Package":"example.com/ok"}`+"\n")
+	fresh := map[string]any{}
+	if err := addTestResults(fresh, work, res); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := fresh["carriedForward"].(map[string]string); c["tests"] != "" {
+		t.Fatalf("fresh test results must not be marked carried forward: %v", c)
+	}
+}

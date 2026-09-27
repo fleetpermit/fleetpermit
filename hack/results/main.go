@@ -45,10 +45,14 @@ type latency struct {
 }
 
 type testSummary struct {
-	Passed   int    `json:"passed"`
-	Failed   int    `json:"failed"`
-	Skipped  int    `json:"skipped"`
-	Coverage string `json:"coverage,omitempty"`
+	Passed  int `json:"passed"`
+	Failed  int `json:"failed"`
+	Skipped int `json:"skipped"`
+	// FailedPackages lists the packages that failed. A package that failed
+	// without a failing test (a build failure, a panic outside a test, a run
+	// that never finished) counts as one failure.
+	FailedPackages []string `json:"failedPackages,omitempty"`
+	Coverage       string   `json:"coverage,omitempty"`
 }
 
 func main() {
@@ -92,31 +96,8 @@ func main() {
 		out["benchmarkEnvironment"] = bench["environment"]
 	}
 
-	tests := map[string]testSummary{}
-	if s, ok := goTestSummary(filepath.Join(work, "unit.jsonl")); ok {
-		s.Coverage = coverage(filepath.Join(work, "cover-unit.out"))
-		tests["unit"] = s
-	}
-	if s, ok := goTestSummary(filepath.Join(work, "integration.jsonl")); ok {
-		s.Coverage = coverage(filepath.Join(work, "cover-integration.out"))
-		tests["integration"] = s
-	}
-	if c := mergedCoverage(filepath.Join(work, "cover-unit.out"), filepath.Join(work, "cover-integration.out")); c != "" {
-		out["coverage"] = map[string]string{
-			"internalPackages": c,
-			"scope":            "statements in internal/... covered by unit and integration tests combined",
-		}
-	}
-	if len(tests) > 0 {
-		out["tests"] = tests
-		writeJSON(filepath.Join(res, "tests.json"), tests)
-	} else if prev := readJSON(filepath.Join(res, "tests.json")); prev != nil {
-		out["tests"] = prev
-	}
-	if out["coverage"] == nil {
-		if prev := readJSON(filepath.Join(res, "results.json")); prev != nil && prev["coverage"] != nil {
-			out["coverage"] = prev["coverage"]
-		}
+	if err := addTestResults(out, work, res); err != nil {
+		fail(err)
 	}
 
 	writeJSON(filepath.Join(res, "results.json"), out)
@@ -227,30 +208,155 @@ func pct(sorted []int64, p float64) int64 {
 	return sorted[rank-1]
 }
 
-func goTestSummary(path string) (testSummary, bool) {
+// addTestResults adds this run's unit and integration test summaries and
+// coverage to out. A dataset this run did not produce is carried forward
+// from the previous results, and out["carriedForward"] records when that
+// dataset was produced, so that it is never presented as rerun.
+func addTestResults(out map[string]any, work, res string) error {
+	tests := map[string]testSummary{}
+	for _, suite := range []string{"unit", "integration"} {
+		s, ok, err := goTestSummary(filepath.Join(work, suite+".jsonl"))
+		if err != nil {
+			return err
+		}
+		if ok {
+			s.Coverage = coverage(filepath.Join(work, "cover-"+suite+".out"))
+			tests[suite] = s
+		}
+	}
+	if c := mergedCoverage(filepath.Join(work, "cover-unit.out"), filepath.Join(work, "cover-integration.out")); c != "" {
+		out["coverage"] = map[string]string{
+			"internalPackages": c,
+			"scope":            "statements in internal/... covered by unit and integration tests combined",
+		}
+	}
+	prev := readJSON(filepath.Join(res, "results.json"))
+	carried := map[string]string{}
+	if len(tests) > 0 {
+		out["tests"] = tests
+		writeJSON(filepath.Join(res, "tests.json"), tests)
+	} else if earlier := readJSON(filepath.Join(res, "tests.json")); earlier != nil {
+		out["tests"] = earlier
+		carried["tests"] = producedAt(prev, "tests")
+	}
+	if out["coverage"] == nil && prev != nil && prev["coverage"] != nil {
+		out["coverage"] = prev["coverage"]
+		carried["coverage"] = producedAt(prev, "coverage")
+	}
+	if len(carried) > 0 {
+		out["carriedForward"] = carried
+	}
+	return nil
+}
+
+// producedAt is when a dataset in the previous results was produced: the
+// date it was already carried forward from, or that run's generation time.
+func producedAt(prev map[string]any, dataset string) string {
+	if c, ok := prev["carriedForward"].(map[string]any); ok && c[dataset] != nil {
+		return str(c[dataset])
+	}
+	if prev != nil && prev["generatedAt"] != nil {
+		return str(prev["generatedAt"])
+	}
+	return "an earlier run"
+}
+
+// carriedNote says, for a dataset carried forward from earlier results, when
+// it was produced, or returns "".
+func carriedNote(out map[string]any, dataset string) string {
+	c, _ := out["carriedForward"].(map[string]string)
+	if c[dataset] == "" {
+		return ""
+	}
+	return fmt.Sprintf("carried forward from %s, not rerun", c[dataset])
+}
+
+// goTestSummary counts top-level test results in a `go test -json` stream.
+// A package that fails without a failing test (a build failure, a panic
+// outside a test) or never reports its result counts as one failure and is
+// listed in FailedPackages. A line that is not a test event means the file is
+// truncated or not `go test -json` output, and is an error.
+func goTestSummary(path string) (testSummary, bool, error) {
 	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return testSummary{}, false, nil
+	}
 	if err != nil {
-		return testSummary{}, false
+		return testSummary{}, false, err
 	}
 	defer f.Close()
 	var s testSummary
+	type pkgResult struct {
+		failedTests  int
+		done, failed bool
+	}
+	pkgs := map[string]*pkgResult{}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
-	for sc.Scan() {
-		var ev struct{ Action, Test string }
-		if json.Unmarshal(sc.Bytes(), &ev) != nil || ev.Test == "" || strings.Contains(ev.Test, "/") {
+	for line := 1; sc.Scan(); line++ {
+		var ev struct{ Action, Package, Test, Output string }
+		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+			return testSummary{}, true, fmt.Errorf("%s:%d: not a go test -json event: %w", path, line, err)
+		}
+		if ev.Package == "" {
+			// Build events name an import path; the package's own events
+			// report the outcome.
+			continue
+		}
+		pkg := pkgs[ev.Package]
+		if pkg == nil {
+			pkg = &pkgResult{}
+			pkgs[ev.Package] = pkg
+		}
+		if ev.Test != "" {
+			if strings.Contains(ev.Test, "/") {
+				continue
+			}
+			switch ev.Action {
+			case "pass":
+				s.Passed++
+			case "fail":
+				s.Failed++
+				pkg.failedTests++
+			case "skip":
+				s.Skipped++
+			}
 			continue
 		}
 		switch ev.Action {
-		case "pass":
-			s.Passed++
+		case "pass", "skip":
+			pkg.done = true
 		case "fail":
-			s.Failed++
-		case "skip":
-			s.Skipped++
+			pkg.done, pkg.failed = true, true
+		case "output":
+			if strings.HasPrefix(ev.Output, "FAIL\t") || strings.Contains(ev.Output, "[build failed]") || strings.Contains(ev.Output, "[setup failed]") {
+				pkg.failed = true
+			}
 		}
 	}
-	return s, true
+	if err := sc.Err(); err != nil {
+		return testSummary{}, true, fmt.Errorf("%s: %w", path, err)
+	}
+	names := make([]string, 0, len(pkgs))
+	for name := range pkgs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		pkg := pkgs[name]
+		switch {
+		case !pkg.done:
+			s.FailedPackages = append(s.FailedPackages, name+" (did not finish)")
+		case pkg.failed:
+			s.FailedPackages = append(s.FailedPackages, name)
+		default:
+			continue
+		}
+		if pkg.failedTests == 0 {
+			s.Failed++
+		}
+	}
+	return s, true, nil
 }
 
 type block struct{ stmts, count int }
@@ -428,12 +534,20 @@ func markdown(out map[string]any) string {
 	}
 
 	w("## Unit and integration tests\n\n")
+	if note := carriedNote(out, "tests"); note != "" {
+		w("These results are %s by this `make results`.\n\n", note)
+	}
 	if t, ok := out["tests"].(map[string]testSummary); ok {
 		w("| Suite | passed | failed | skipped | coverage |\n|---|---|---|---|---|\n")
+		var failed []string
 		for _, k := range []string{"unit", "integration"} {
 			if s, ok := t[k]; ok {
 				w("| %s | %d | %d | %d | %s |\n", k, s.Passed, s.Failed, s.Skipped, s.Coverage)
+				failed = append(failed, s.FailedPackages...)
 			}
+		}
+		if len(failed) > 0 {
+			w("\nFailed packages: %s.\n", strings.Join(failed, ", "))
 		}
 	} else if t, ok := out["tests"].(map[string]any); ok {
 		w("| Suite | passed | failed | skipped | coverage |\n|---|---|---|---|---|\n")
@@ -443,10 +557,16 @@ func markdown(out map[string]any) string {
 			}
 		}
 	}
+	scope := func(s string) string {
+		if note := carriedNote(out, "coverage"); note != "" {
+			return s + "; " + note
+		}
+		return s
+	}
 	if c, ok := out["coverage"].(map[string]string); ok {
-		w("\nCombined statement coverage of `internal/`: **%s** (%s).\n", c["internalPackages"], c["scope"])
+		w("\nCombined statement coverage of `internal/`: **%s** (%s).\n", c["internalPackages"], scope(c["scope"]))
 	} else if c, ok := out["coverage"].(map[string]any); ok {
-		w("\nCombined statement coverage of `internal/`: **%s** (%s).\n", str(c["internalPackages"]), str(c["scope"]))
+		w("\nCombined statement coverage of `internal/`: **%s** (%s).\n", str(c["internalPackages"]), scope(str(c["scope"])))
 	}
 	return b.String()
 }
@@ -642,10 +762,14 @@ func updateReadme(path string, out map[string]any) error {
 				str(m["suite"]), str(m["version"]), str(m["result"]))
 		}
 	}
+	carried := ""
+	if note := carriedNote(out, "coverage"); note != "" {
+		carried = " (" + note + ")"
+	}
 	if c, ok := out["coverage"].(map[string]string); ok {
-		fmt.Fprintf(&r, "\nStatement coverage of `internal/` (unit + integration): **%s**.\n", c["internalPackages"])
+		fmt.Fprintf(&r, "\nStatement coverage of `internal/` (unit + integration): **%s**%s.\n", c["internalPackages"], carried)
 	} else if c, ok := out["coverage"].(map[string]any); ok {
-		fmt.Fprintf(&r, "\nStatement coverage of `internal/` (unit + integration): **%s**.\n", str(c["internalPackages"]))
+		fmt.Fprintf(&r, "\nStatement coverage of `internal/` (unit + integration): **%s**%s.\n", str(c["internalPackages"]), carried)
 	}
 	if r.Len() == 0 {
 		return nil
