@@ -82,7 +82,7 @@ YAML
 | `metrics.enabled` / `metrics.port` / `metrics.scrapeAnnotations` | `true` / `8080` / `true` | Prometheus endpoint and `prometheus.io/*` annotations |
 | `tracing.otlpEndpoint` | `""` | enables OpenTelemetry trace export over OTLP/HTTP |
 | `rbac.create` | `true` | create the controller's ClusterRole, Role and bindings |
-| `serviceAccount.create` / `serviceAccount.name` / `serviceAccount.annotations` | `true` / `""` / `{}` | the controller's ServiceAccount; an empty name means `fleetpermit-controller` |
+| `serviceAccount.create` / `serviceAccount.name` / `serviceAccount.annotations` | `true` / `""` / `{}` | the controller's ServiceAccount; an empty name means `fleetpermit-controller`. With `create: false` (and `rbac.create: true`), `name` must be an existing, dedicated ServiceAccount: the chart refuses an empty name or `default` (see [RBAC](#rbac)) |
 | `resources`, `podSecurityContext`, `securityContext`, `nodeSelector`, `tolerations`, `affinity` | hardened defaults | non-root, read-only root filesystem, all capabilities dropped |
 | `podAnnotations`, `podLabels` | `{}` | extra annotations and labels on the controller pod |
 
@@ -110,7 +110,10 @@ of the workflow that signed them. The signatures are recorded in the public Reko
 - v0.1.0 was published before signing was automated. Its images and assets were signed afterwards by
   the manual [`sign-release`](../.github/workflows/sign-release.yaml) workflow.
 - Later releases are signed by the [`release`](../.github/workflows/release.yaml) workflow when the
-  tag is pushed.
+  tag is pushed. The workflow waits up to five minutes for the GitHub release to exist, then stops
+  before building anything unless the chart's `version` and `appVersion` in `Chart.yaml` match the
+  tag (`0.1.1` and `v0.1.1` for tag `v0.1.1`). The chart in the tagged source and the chart attached
+  to the release therefore deploy the same image.
 
 The identity pattern below accepts either workflow.
 
@@ -154,6 +157,13 @@ Generated from the `+kubebuilder:rbac` markers in `internal/controller` ([`confi
 
 On the hub, the controller has no access to the Secret, workload or RBAC APIs. The e2e `RBAC`
 scenario checks this with `kubectl auth can-i`.
+
+The chart binds these roles to the controller's own ServiceAccount (`fleetpermit-controller` unless
+`serviceAccount.name` says otherwise). To use an existing ServiceAccount instead
+(`serviceAccount.create: false`), set `serviceAccount.name` to one that no other workload runs as.
+When the chart creates RBAC, it refuses to render with an empty name or `default`: the roles would
+be bound to the namespace's `default` ServiceAccount, and every pod that runs as it would get the
+controller's permissions.
 
 The `manifestworks` permission is cluster-wide. The controller can therefore read every
 `ManifestWork` on the hub, including content other tools deliver through ManifestWork (which can
@@ -206,7 +216,9 @@ consider these controls:
 - Grant write access to `toolaccessleases/status` and `fleetaccesspolicies/status` only to the
   controller. A lease without `spec.duration` keeps its expiry pinned in `status.expiresAt`, so a
   principal that can write lease status could extend such a lease up to the policy's `maxDuration`
-  (never beyond it; see the [threat model](threat-model.md), T9).
+  (never beyond it; see the [threat model](threat-model.md), T9). Lease status also records the
+  policy a lease belongs to (`status.policyUID`); clearing it would let a policy created again under
+  the same name grant the lease (T22).
 
 On managed clusters, [`work-agent-rbac.yaml`](../config/managed-cluster/work-agent-rbac.yaml) adds
 permissions to the OCM work agent. It is a ClusterRole labelled
@@ -222,10 +234,10 @@ Served at `:8080/metrics`. No metric uses identities, lease names or cluster nam
 |---|---|---|---|
 | `fleetpermit_reconcile_total` | counter | `result` = success, error | policy reconciliations |
 | `fleetpermit_reconcile_errors_total` | counter | none | reconciliations that returned an error |
-| `fleetpermit_active_leases` | gauge | none | leases granting on at least one cluster |
+| `fleetpermit_active_leases` | gauge | none | leases with a grant rendered for at least one cluster. It counts the authority FleetPermit is delivering: delivery may still be in progress, which the lease's `Ready` condition confirms |
 | `fleetpermit_expired_leases_total` | counter | none | leases that transitioned to Expired |
 | `fleetpermit_denied_leases_total` | counter | `reason` | leases that transitioned to Denied |
-| `fleetpermit_authorized_clusters` | gauge | none | (policy, cluster) pairs holding grants |
+| `fleetpermit_authorized_clusters` | gauge | none | (policy, cluster) pairs with at least one grant rendered; delivery may still be in progress, which the cluster's entry in the policy's `status.clusters` confirms |
 | `fleetpermit_policy_propagation_seconds` | histogram | none | lease creation → first Ready on every target cluster; observed once per lease per controller process |
 | `fleetpermit_lease_revocation_seconds` | histogram | none | expiry or denial → grants withdrawn everywhere. Observed once every cluster that held the grant reports content without it; for a cluster that left the placement, once its ManifestWork is gone (cleanup; the gateway already denies at expiry). A cluster that stays offline delays the sample |
 | `fleetpermit_placement_changes_total` | counter | none | changes to a policy's selected clusters that this controller process observes; a change made while the controller was down is not counted |
@@ -255,15 +267,33 @@ v0.1.0 the trace exporter could not start; use v0.1.1 or later for tracing.
 - Revoke a lease early with `kubectl -n <namespace> delete toolaccesslease <name>`. The grant is withdrawn from every
   cluster the hub can reach; [results.md](results.md) shows the measured "Lease deleted → first DENY"
   latency. A cluster the hub cannot reach keeps the grant until it expires.
-- To stop a whole policy in an emergency, delete the `FleetAccessPolicy`. Its finalizer withdraws
-  every grant from every cluster, and every lease that was evaluated against the policy becomes
-  `Denied` with reason `PolicyNotFound`; a lease already past its recorded expiry becomes `Expired`,
-  and expired leases stay `Expired`. Denied is terminal, so recreating the policy does not revive
-  those leases. A lease that was never evaluated (for example one applied just before the policy)
-  waits in `Pending` for up to 5 minutes after its creation and would activate if the policy were
-  created again in that time, so delete such leases too. After that it is denied.
-- Deleting only the policy's placement also withdraws every grant, and the policy reports
-  `Degraded/PlacementNotFound`. Its leases are not denied, though. They go to phase `Pending`
+- To stop a whole policy in an emergency, delete the `FleetAccessPolicy`. Every lease that was
+  evaluated against the policy becomes `Denied` with reason `PolicyNotFound` at once, before the
+  policy is gone; a lease already past its recorded expiry becomes `Expired`, and expired leases stay
+  `Expired`. The finalizer then withdraws every grant from every cluster, and the policy stays, with
+  `Ready=False` and reason `Deleting` naming the clusters, until all its ManifestWorks are gone. Denied
+  is terminal, and a lease is only ever granted under the policy that first evaluated it
+  (`status.policyUID`), so recreating the policy does not revive those leases. A lease that was never
+  evaluated (for example one applied just before the policy) waits in `Pending` for up to 5 minutes
+  after its creation and would activate if the policy were created again in that time, so delete such
+  leases too. After that it is denied.
+- A managed cluster that is offline keeps a deleted policy in `Terminating` until it reconnects; the
+  policy is `Degraded` and lists the cluster as `ClusterUnavailable`. Grants on the cluster still
+  expire on time. If the cluster will not come back, set the escape annotation:
+
+  ```sh
+  kubectl -n <namespace> annotate fleetaccesspolicy <name> fleetpermit.github.io/skip-withdrawal-wait=true
+  ```
+
+  FleetPermit then releases the finalizer once it has requested the deletion of every ManifestWork,
+  without waiting for the work agents to confirm it, and logs the clusters on which removal is not
+  confirmed. The ManifestWorks stay marked for deletion on the hub, so a cluster that does reconnect
+  removes the grants then. Standing grants (`lease.required: false`) have no expiry, so they stay on
+  a cluster that never reconnects. FleetPermit does
+  not wait for clusters that have been removed from OCM (no ManagedCluster), so the annotation is only
+  needed while the ManagedCluster still exists. See [api.md](api.md#deleting-a-policy).
+- Deleting only the policy's placement also withdraws every grant, as soon as the deletion starts,
+  and the policy reports `Degraded/PlacementNotFound`. Its leases are not denied, though. They go to phase `Pending`
   (`NoEligibleClusters`), and a lease that has not expired is delivered again if the placement comes
   back. This pauses the policy and leaves its leases in place.
 - To upgrade FleetPermit, check out the new release tag, apply the CRDs, then run `helm upgrade`.
@@ -304,7 +334,10 @@ v0.1.0 the trace exporter could not start; use v0.1.1 or later for tracing.
   latency and how quickly a deleted delivered object is noticed and re-applied. It has no effect on
   enforcement.
 - To uninstall, delete every `FleetAccessPolicy` first, so that their finalizers withdraw every
-  grant while the controller is still running, then remove the release, the CRDs and the namespace:
+  grant while the controller is still running, then remove the release, the CRDs and the namespace.
+  `--wait` returns when every policy is gone, which needs every managed cluster that holds a delivery
+  to be reachable; for a cluster that will not come back, set
+  `fleetpermit.github.io/skip-withdrawal-wait=true` on the affected policies (above):
 
   ```sh
   kubectl delete fleetaccesspolicies --all --all-namespaces --wait

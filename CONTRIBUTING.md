@@ -29,6 +29,10 @@ make results            # regenerate test-results/results.json, docs/results.md 
 
 After changing anything in `api/` or an RBAC marker, run `make generate` and commit the result.
 
+`make results` uses the test output of the last `make test-unit` and `make test-integration` run.
+Counts or coverage it has to reuse from earlier results are marked carried forward, with the date they
+were produced ([how results are generated](docs/testing.md#how-results-are-generated)).
+
 ## Pull requests
 
 1. Open an issue first for API changes, security-model changes or new dependencies.

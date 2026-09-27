@@ -24,6 +24,15 @@ All notable changes to this project are documented here. The format follows
   creates RBAC) and `watchNamespace` (a namespace name), refuses more than one replica without leader
   election, and prints installation notes (`NOTES.txt`) with the managed-cluster steps
   and the CRD upgrade step.
+- Plain-text transcripts of the demo recordings (`demo/recordings/*.txt`) as text alternatives to the
+  videos. `hack/cast-to-text.py` renders each from its cast without escape sequences, and
+  `make demo-videos` regenerates them with the recordings.
+- The annotation `fleetpermit.github.io/skip-withdrawal-wait: "true"` on a `FleetAccessPolicy` lets
+  its deletion finish once the deletion of every ManifestWork has been requested, for managed clusters
+  that will not reconnect. Removal on those clusters is then not confirmed, and the controller logs
+  them.
+- `status.policyUID` on `ToolAccessLease`: the UID of the policy that first evaluated the lease (see
+  Fixed).
 
 ### Changed
 
@@ -42,6 +51,15 @@ All notable changes to this project are documented here. The format follows
   a checkout of the website, copies the MP4 videos and poster images there too.
 - The release workflow waits for the GitHub release to exist before it pushes images, instead of
   failing only at the final upload.
+- The release workflow stops before building anything unless `Chart.yaml`'s `version` and
+  `appVersion` match the tag (`0.1.1` and `v0.1.1` for tag `v0.1.1`).
+- Security: the lab's Envoy is v1.36.10, pinned by tag and digest, instead of v1.36.6, which predates
+  the security fixes released in v1.36.7, v1.36.9 and v1.36.10.
+- `hack/install-helm.sh` and `hack/install-lab-tools.sh` check every download's SHA-256: Helm and kind
+  against the values those projects publish, and clusteradm, which publishes none, against hashes
+  pinned from its v1.3.1 release assets. On CI, a preinstalled Helm of another version is replaced by
+  v3.19.0; elsewhere an existing Helm is left alone and its version reported. setup-envtest is pinned
+  to a module version instead of the moving `release-0.25` branch.
 - A lease created before its policy waits in `Pending` with reason `PolicyNotFound` for up to
   5 minutes after its creation, and its message names the deadline, so GitOps tools can apply objects
   in any order. It activates if the policy appears in that time; after that it is `Denied`, and it is
@@ -80,9 +98,24 @@ All notable changes to this project are documented here. The format follows
 - `fleetpermit_placement_changes_total` counts the changes this controller process observes.
 - `status.clusters` on a policy holds at most 512 entries. Only when more clusters would be listed
   are the clusters that are not ready listed first, and the `Ready` message says how many are listed.
+- The help text of `fleetpermit_active_leases` and `fleetpermit_authorized_clusters` now says what
+  they count: grants rendered for a cluster, whose delivery may still be in progress (the lease's
+  `Ready` condition, or the cluster's entry in the policy status, confirms it).
 
 ### Fixed
 
+- Security: with `serviceAccount.create=false` and no `serviceAccount.name`, the Helm chart bound the
+  controller's ClusterRole to the release namespace's `default` ServiceAccount, so every pod running
+  as it got the controller's ManifestWork permissions. When it creates RBAC, the chart now refuses to
+  render unless `serviceAccount.name` names a dedicated ServiceAccount (not empty, not `default`).
+- Security: a policy deleted and created again under the same name could grant the leases issued
+  under the earlier one, if it appeared before the controller had denied them, for example while the
+  controller was down and the finalizer had been removed by hand. A lease now records the UID of the
+  policy that first evaluates it (`status.policyUID`) and is granted only under that policy; under
+  another policy with the same name it is `Denied` with reason `PolicyNotFound`, and the message names
+  the earlier UID. Deleting a policy also ends its leases before the policy is gone. A lease that no
+  policy has evaluated yet belongs to the first policy that evaluates it, and so does a lease from
+  before this change.
 - Security: a lease that omitted `duration` took the policy's current `defaultDuration` on every
   reconcile, so raising the default extended leases that had already been issued. The first recorded
   expiry is now pinned: later policy changes can never extend it, and lowering `maxDuration` below it
@@ -158,6 +191,35 @@ All notable changes to this project are documented here. The format follows
   It counts lease and standing grants, as it always did, and the description now says so.
 - Lease metrics could be counted twice when a status write failed and the reconcile was retried. They
   are now recorded once, after the write succeeds.
+- End-to-end scenario A1 passed even when it did not see the open state it exists to show. It now
+  fails unless it observes the ALLOW without the anchor. S10's expected outcome claimed a denial while
+  the rendered policy was missing, but the scenario also accepted the policy being back first. It now
+  watches for the anchor's DENY and reports when it saw it, or that it was not observed because the
+  policy came back first.
+- A deleted policy lost its finalizer as soon as the deletion of its ManifestWorks was requested, so it
+  could disappear while its grants were still on a cluster, for example an offline one. The finalizer
+  is now held until every ManifestWork of the policy is gone, which the OCM work agent allows only
+  after removing the delivered objects. Meanwhile the policy is `Ready=False` with reason `Deleting`,
+  naming the clusters; they are listed as `Revoking`, or as `ClusterUnavailable` (policy `Degraded`)
+  while offline.
+- A `Placement` that was being deleted still selected its clusters, and `PlacementDecision` objects
+  that were being deleted still counted. A Placement being deleted now selects no clusters
+  (`PlacementNotFound`, grants withdrawn), and decisions being deleted are ignored.
+- A ManifestWork that lost its `app.kubernetes.io/managed-by` label was invisible to the controller's
+  cache, so it was neither restored nor removed with its policy. Deleting a policy, cleaning up after
+  one that disappeared, and creating a work that already exists now read ManifestWorks from the API
+  server: such a work is restored by the next reconcile and removed on deletion. On these paths only
+  ManifestWorks named `fleetpermit-*` in the namespace of a ManagedCluster are deleted. A change to any
+  label or annotation FleetPermit sets on a ManifestWork is now restored too.
+- A ManagedCluster that did not exist or could not be read counted as available. A missing one is now
+  unavailable ("does not exist") and an unreadable one is not ready ("cluster availability unknown:
+  ..."); both are reported as `ClusterUnavailable`.
+- The results generator did not count a package that failed without a failing test (a build failure,
+  a panic outside a test, a run that never finished), and it showed test counts and coverage reused
+  from an earlier run as if they were current. Such packages now count as failures and are listed
+  (`failedPackages`), malformed `go test -json` input stops generation, and reused data is marked
+  carried forward with the date it was produced (`carriedForward` in `results.json`, and a note in
+  `docs/results.md` and the README).
 
 ## [v0.1.0] - 2026-09-26
 

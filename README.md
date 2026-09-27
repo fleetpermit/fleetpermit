@@ -84,6 +84,10 @@ MCP call through a real gateway. The `$` command lines are shortened for readabi
 [overview](https://fleetpermit.github.io/assets/video/demo-overview.mp4) ·
 [security checks](https://fleetpermit.github.io/assets/video/demo-security.mp4) ·
 [hub disconnected](https://fleetpermit.github.io/assets/video/demo-disconnected-expiry.mp4).
+Plain-text transcripts of the same runs:
+[overview](demo/recordings/demo-overview.txt) ·
+[security checks](demo/recordings/demo-security.txt) ·
+[hub disconnected](demo/recordings/demo-disconnected-expiry.txt).
 
 ## Why FleetPermit
 
@@ -185,9 +189,10 @@ list, for longer than `maxDuration`, or for a subject the policy does not name. 
 policy waits in `Pending` for up to 5 minutes, so the apply order does not matter within that time;
 if the policy does not appear by then, the lease is denied, and it expires instead if its own
 duration ends first. A lease whose policy is deleted after it was evaluated is denied, or `Expired` if its expiry
-had already passed. Provided only the controller
-can write `toolaccessleases/status`, denied and expired leases never become active again.
-A lease's spec cannot be edited after creation.
+had already passed. A lease belongs to the policy that first evaluated it, so a policy deleted and
+created again under the same name does not grant it. Provided only the controller can write
+`toolaccessleases/status`, denied and expired leases never become active again. A lease's spec cannot
+be edited after creation.
 
 ## Security properties
 
@@ -308,7 +313,7 @@ covered by a FleetPermit test. An agent with a trusted but unlisted identity is 
 The upstream [quickstart](https://github.com/kubernetes-sigs/kube-agentic-networking/tree/v0.2.0/site-src/guides/quickstart)
 ("Bring your own agent") shows how to give an existing agent an identity and route it through the gateway.
 
-Recordings of real runs: [demo/recordings](demo/recordings) (asciinema) and MP4s on the [website](https://fleetpermit.github.io/demo.html).
+Recordings of real runs: [demo/recordings](demo/recordings) (asciinema casts and plain-text transcripts) and MP4s on the [website](https://fleetpermit.github.io/demo.html).
 
 ## Measured results
 
@@ -379,8 +384,11 @@ envtest scale simulation, and are not a production benchmark.
 | Open Cluster Management | v1.3.1 | CNCF Sandbox project | `Placement`, `PlacementDecision`, `ManifestWork` |
 | kube-agentic-networking | v0.2.0 | Kubernetes SIG Network subproject; **experimental API** | `XAccessPolicy` (v1alpha1), `XBackend` (v0alpha0) |
 | Gateway API | v1.5.1 | Kubernetes SIG Network, GA | `Gateway`, `HTTPRoute` |
-| Envoy | v1.36.6 | CNCF Graduated | data plane (via the reference implementation) |
+| Envoy | v1.36.10 | CNCF Graduated | data plane (via the reference implementation) |
 | Model Context Protocol | 2025-06-18 client handshake | Linux Foundation (Agentic AI Foundation) | tool protocol |
+
+The lab pins Envoy by tag and digest. It moved from v1.36.6 to v1.36.10 for the 1.36 security fixes.
+[docs/results.md](docs/results.md) records the versions the published results were measured with.
 
 The upstream kube-agentic-networking APIs are experimental and will change. FleetPermit pins the versions
 above and runs its end-to-end suite against them. A weekly canary validates rendered policies against

@@ -147,7 +147,8 @@ version can move to it.
 - Because that pinned value lives in the status subresource, only the controller should be able to
   write `toolaccessleases/status`. A principal that can write it could extend such a lease up to the
   policy's `maxDuration`. A recorded expiry beyond the maximum denies the lease
-  (`TestEvaluateForgedStatusCannotExceedMaximum`).
+  (`TestEvaluateForgedStatusCannotExceedMaximum`). The status also binds the lease to its policy
+  (below).
 - ManifestWork and XAccessPolicy names carry a 64-bit hash (16 hex characters) of the policy's
   namespace and name, and FleetPermit refuses to modify a ManifestWork owned by another policy
   (`TestForeignManifestWorkIsNotOverwritten`). Both are v0.1.1; v0.1.0 used 8 hex characters.
@@ -157,10 +158,20 @@ version can move to it.
   `read_secret` to the policy. Removing a tool or a subject from a policy, or lowering its
   `maxDuration`, denies the leases that no longer fit at once. Narrowing the placement does not deny
   anything; it only withdraws grants from the clusters that left.
-  Deleting a policy denies its leases that have been evaluated against it; a lease already past its
-  recorded expiry becomes `Expired` instead, and an expired lease stays `Expired`
-  (v0.1.1, `TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted`,
+  Deleting a policy denies its leases that have been evaluated against it, as soon as the deletion
+  starts and before the policy is gone; a lease already past its recorded expiry becomes `Expired`
+  instead, and an expired lease stays `Expired`
+  (v0.1.1, `TestFinalizeEndsTheLeasesBeforeThePolicyIsGone`,
+  `TestExpiredLeaseStaysExpiredWhenPolicyIsDeleted`,
   `TestLeasePastItsRecordedExpiryIsExpiredWhenItsPolicyIsMissing`).
+- A lease belongs to a policy, not to a policy name. The first policy that evaluates a lease records
+  its UID in `status.policyUID`, and the lease is granted only under that policy. If the policy is
+  deleted and created again under the same name, the new policy denies the lease with reason
+  `PolicyNotFound`, and the message names the earlier UID (v0.1.1, `TestLeaseIsBoundToThePolicyUID`,
+  `TestLeasesDoNotCarryOverToAPolicyCreatedAgain`). Ending the leases when deletion starts covers the
+  normal path; the UID also covers a policy whose finalizer was removed by hand, so its leases were
+  never ended. A lease that no policy has evaluated yet, such as one applied before its policy,
+  belongs to the first policy that evaluates it.
 - A lease created before its policy is not denied at once, because GitOps tools apply objects in no
   fixed order. It waits in `Pending` with reason `PolicyNotFound` for up to 5 minutes after its
   creation, and its message names the deadline. It activates if the policy appears in that time; after
@@ -182,7 +193,13 @@ Anything else is reported as `Progressing` or `Degraded`, with a reason such as 
 
 A cluster that leaves the placement counts as withdrawn only when its ManifestWork is gone, not when
 its deletion is requested (v0.1.1). Until then the policy lists it as `Revoking`, expired or denied
-leases keep listing it, and the revocation metric is not observed. The rendered object carries no
+leases keep listing it, and the revocation metric is not observed. The same holds for a deleted
+policy: its finalizer is released only when all its ManifestWorks are gone, and until then the policy
+reports `Deleting` with the clusters it is still being withdrawn from (v0.1.1,
+`TestPolicyDeletionWaitsForWithdrawal`). The annotation `fleetpermit.github.io/skip-withdrawal-wait`
+lets an operator release it for clusters that will not reconnect, accepting that removal there is not
+confirmed. A ManagedCluster that does not exist, or cannot be read, counts as unavailable rather than
+available (v0.1.1). The rendered object carries no
 policy generation (v0.1.1), so a policy edit that does not change a cluster's grants causes no
 rollout.
 

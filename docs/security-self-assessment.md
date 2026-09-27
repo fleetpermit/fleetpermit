@@ -77,7 +77,7 @@ audit.
 
 | Critical | Function |
 |---|---|
-| Lease evaluation (`internal/lease`) | pure function; subset, duration and placement intersection; unit tested at the boundaries |
+| Lease evaluation (`internal/lease`) | pure function; subset, duration and placement intersection; a lease is granted only under the policy UID that first evaluated it; unit tested at the boundaries |
 | Rendering (`internal/enforcement/agenticnetworking`) | strict re-validation of tool names and SPIFFE IDs before building CEL; tested against injection attempts |
 | Expiry in the data plane | CEL `request.time` bound evaluated by Envoy per request; tested with the hub paused (S11) |
 | API validation | CRD schema and CEL rules; lease spec immutability; `failMode: Closed` only |

@@ -12,13 +12,13 @@ project's own pages.
 | kube-agentic-networking | Kubernetes SIG Network subproject | v0.2.0 | `agentic.networking.x-k8s.io/v1alpha1` XAccessPolicy (`Allow`, SPIFFE sources, Inline MCP and CEL rules); `v0alpha0` XBackend | tool-level authorization | experimental: `X` kinds, alpha versions, reference implementation marked "not production-ready" | https://github.com/kubernetes-sigs/kube-agentic-networking |
 | kube-agentic-networking controller image | Kubernetes project staging registry | `agentic-networking-controller:v0.2.0` | reference implementation | enforcement in the lab | experimental | `us-central1-docker.pkg.dev/k8s-staging-images/agentic-net` |
 | Gateway API | Kubernetes SIG Network | v1.5.1 standard channel | `gateway.networking.k8s.io/v1` Gateway, HTTPRoute | routing to the tool server | GA | https://gateway-api.sigs.k8s.io |
-| Envoy | CNCF Graduated | v1.36.6 | RBAC filter with CEL conditions, MCP filter (through the reference implementation) | data plane | stable (MCP filter is new) | https://www.envoyproxy.io |
+| Envoy | CNCF Graduated | v1.36.10 (image pinned by tag and digest) | RBAC filter with CEL conditions, MCP filter (through the reference implementation) | data plane | stable (MCP filter is new) | https://www.envoyproxy.io |
 | SPIFFE | CNCF Graduated | SPIFFE ID and X.509 SVID formats | `spiffe://` identities in mTLS certificates | workload identity | stable | https://spiffe.io |
 | Model Context Protocol | Linux Foundation (Agentic AI Foundation) | protocol revision 2025-06-18 (probe); Go SDK v1.8.0 (demo server) | Streamable HTTP, `initialize`, `tools/call` | agent-to-tool protocol | stable spec | https://modelcontextprotocol.io |
 | controller-runtime / controller-tools | Kubernetes SIG API Machinery | v0.25.1 / v0.22.0 | manager, envtest, CRD generation | controller framework | stable | https://github.com/kubernetes-sigs |
 | Prometheus client_golang | CNCF Graduated | v1.24.1 | metrics | observability | stable | https://prometheus.io |
 | OpenTelemetry Go | CNCF Graduated | v1.46.0 | traces over OTLP/HTTP | observability | stable (tracing) | https://opentelemetry.io |
-| Helm | CNCF Graduated | chart apiVersion v2; `hack/install-helm.sh` installs Helm v3.19.0 only when no Helm is installed | packaging | installation | stable | https://helm.sh |
+| Helm | CNCF Graduated | chart apiVersion v2; `hack/install-helm.sh` installs Helm v3.19.0 (SHA-256 verified) when no Helm is installed, or on CI when another version is | packaging | installation | stable | https://helm.sh |
 | MetalLB | CNCF Sandbox | v0.15.3 | IPAddressPool, L2Advertisement | lab only: gateway addresses on kind | stable | https://metallb.io |
 | kind | Kubernetes SIG Testing | v0.32.0 | none | lab only | stable | https://kind.sigs.k8s.io |
 
@@ -65,16 +65,21 @@ projects. FleetPermit's data plane is whatever the kube-agentic-networking refer
 programs, so its tested combination is the one that matters. The upstream canary reports newer
 releases so they can be adopted deliberately, together with a new kube-agentic-networking release.
 
+For Envoy, kube-agentic-networking deploys the moving tag `envoyproxy/envoy:v1.36-latest`. The lab
+pins one 1.36 patch release, v1.36.10, by tag and digest, so every run uses the same image. v1.36.10
+includes the security fixes released since v1.36.6, the lab's earlier pin. [results.md](results.md)
+records the Envoy version the published results were measured with.
+
 ## Keeping up with upstream
 
 Upstream versions are pinned in these places:
 
 | Where | What it pins |
 |---|---|
-| [`demo/scripts/lib.sh`](../demo/scripts/lib.sh) | the lab: kind node image (Kubernetes v1.35.0, by digest), OCM bundle v1.3.1 and its status sync interval, Gateway API v1.5.1, kube-agentic-networking v0.2.0 and its controller image, Envoy v1.36.6, MetalLB v0.15.3. `lab-up.sh`, `hack/conformance.sh` and `hack/upstream-canary.sh` read these values. |
-| [`hack/install-lab-tools.sh`](../hack/install-lab-tools.sh) | kind v0.32.0 and clusteradm v1.3.1 on Linux CI runners |
-| [`hack/install-helm.sh`](../hack/install-helm.sh) | Helm v3.19.0, installed only when no Helm is on the PATH; an existing Helm (for example the one on GitHub-hosted runners) is used as is |
-| [`Makefile`](../Makefile) | controller-gen v0.22.0, the envtest Kubernetes version 1.35.0 and setup-envtest `release-0.25`, govulncheck v1.1.4, bom v0.8.0 |
+| [`demo/scripts/lib.sh`](../demo/scripts/lib.sh) | the lab: kind node image (Kubernetes v1.35.0, by digest), OCM bundle v1.3.1 and its status sync interval, Gateway API v1.5.1, kube-agentic-networking v0.2.0 and its controller image, Envoy v1.36.10 (by tag and digest), MetalLB v0.15.3. `lab-up.sh`, `hack/conformance.sh` and `hack/upstream-canary.sh` read these values. |
+| [`hack/install-lab-tools.sh`](../hack/install-lab-tools.sh) | kind v0.32.0 and clusteradm v1.3.1 on Linux CI runners, each download checked against a pinned SHA-256: the values kind publishes, and for clusteradm, which publishes none, the hashes of its v1.3.1 release assets |
+| [`hack/install-helm.sh`](../hack/install-helm.sh) | Helm v3.19.0, checked against the SHA-256 the Helm project publishes. On GitHub Actions, a preinstalled Helm of another version is replaced; elsewhere, an existing Helm is left alone and its version reported |
+| [`Makefile`](../Makefile) | controller-gen v0.22.0, the envtest Kubernetes version 1.35.0 and setup-envtest `v0.25.2-0.20260923145615-d837464d41be` (the `release-0.25` branch, pinned to one commit), govulncheck v1.1.4, bom v0.8.0 |
 | [`go.mod`](../go.mod) | the Go language version 1.26.0, the `toolchain go1.26.8` pin, and every Go library, including the OCM API module v1.3.0 |
 | [`Dockerfile`](../Dockerfile) | the Go toolchain build image, by digest |
 | [`test/fixtures/upstream`](../test/fixtures/upstream) | the kube-agentic-networking v0.2.0 `XAccessPolicy` CRD, vendored for schema tests |

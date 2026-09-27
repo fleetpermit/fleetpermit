@@ -31,7 +31,7 @@ Short name `fap`. The maximum authority that leases may activate.
 |---|---|---|---|
 | `spec.subjects[].spiffeID` | string | required | API server: 1–16 unique entries; 10–512 characters; `^spiffe://[a-z0-9._-]+(/[A-Za-z0-9._-]+)*$` (same as upstream). A policy with `lease.required: false` may list at most 5 subjects, because each standing subject needs two of the upstream limit of 10 rules per policy |
 | `spec.placement.provider` | enum | `ocm` | API server: only `ocm` |
-| `spec.placement.placementRef.name` | string | required | an OCM `Placement` in the same namespace; the controller reports `PlacementNotFound` if it is missing |
+| `spec.placement.placementRef.name` | string | required | an OCM `Placement` in the same namespace; the controller reports `PlacementNotFound` if it is missing or being deleted. Only `PlacementDecision` objects that the Placement controls and that are not being deleted count |
 | `spec.target.protocol` | enum | `MCP` | API server: only `MCP` |
 | `spec.target.namespace` | string | required | API server: a DNS label. The namespace of the target on each managed cluster |
 | `spec.target.ref.group` | enum | none: follows the kind | `agentic.networking.x-k8s.io` or `gateway.networking.k8s.io`. When unset, it is the group that serves the kind: `agentic.networking.x-k8s.io` for `XBackend`, `gateway.networking.k8s.io` for `Gateway` |
@@ -59,7 +59,7 @@ Status:
 |---|---|
 | `conditions` | `Ready`, `Progressing`, `Degraded`, each with a reason |
 | `selectedClusters`, `readyClusters`, `clusterSummary` | for example `2/2` |
-| `activeLeases` | leases currently granting on at least one cluster |
+| `activeLeases` | leases with a grant rendered for at least one cluster; delivery may still be in progress (each lease's `Ready` condition confirms it) |
 | `clusters[]` | `name`, `ready`, `reason`, `message`, `grants` (lease and standing grants rendered for the cluster), `contentDigest` for each selected cluster, and for each cluster that left the placement until its delivery is gone. At most 512 entries: beyond that, clusters that are not ready are listed first, the counts above stay exact, and the `Ready` message says how many clusters are listed |
 | `observedGeneration` | last processed generation |
 
@@ -79,11 +79,32 @@ Reasons in `status.clusters[]`:
 | `Applying` | no | the work agent has not applied the current ManifestWork generation |
 | `AwaitingAcceptance` | no | the enforcement controller has not accepted the object yet, or OCM's status feedback has not reported the current content digest |
 | `Drifted` | no | the delivered object was deleted or changed on the cluster; FleetPermit has asked OCM to re-apply it |
-| `Revoking` | no | the cluster left the placement, or the placement was deleted, and its ManifestWork still exists or is being deleted. If the cluster is unavailable, it is reported as `ClusterUnavailable` instead |
+| `Revoking` | no | the cluster left the placement, the placement was deleted, or the policy is being deleted, and its ManifestWork still exists or is being deleted. If the cluster is unavailable, it is reported as `ClusterUnavailable` instead |
 | `DeliveryFailed` | no | rendering failed, the hub rejected the ManifestWork, or another policy owns a ManifestWork with the same name |
 | `ApplyFailed` | no | the work agent could not apply the ManifestWork |
 | `RejectedByEnforcement` | no | the enforcement controller rejected the object |
-| `ClusterUnavailable` | no | OCM reports the ManagedCluster unavailable, so the status may be stale. A withdrawal from the cluster, or a delivery that waits for its previous ManifestWork to be removed, also waits for it to reconnect. The controller does not retry it quickly (only its regular check at least every two minutes); the ManagedCluster watch resumes it when the cluster becomes available. Counts as failed: the policy is `Degraded` with `ClustersFailed` |
+| `ClusterUnavailable` | no | the ManagedCluster does not report `Available`, does not exist (the message says it "does not exist"), or could not be read ("cluster availability unknown: ..."), so the status may be stale. A withdrawal from the cluster, or a delivery that waits for its previous ManifestWork to be removed, also waits for it to reconnect. The controller does not retry it quickly (only its regular check at least every two minutes); the ManagedCluster watch resumes it when the cluster becomes available. Counts as failed: the policy is `Degraded` with `ClustersFailed` |
+
+### Deleting a policy
+
+Deleting a `FleetAccessPolicy` first ends its leases: each lease that was evaluated against it becomes
+`Denied` with reason `PolicyNotFound`, or `Expired` if it is past its recorded expiry. FleetPermit then
+deletes the policy's ManifestWorks on every cluster and keeps its finalizer until all of them are gone.
+The OCM work agent lets a ManifestWork go only after it has removed the delivered objects, so once the
+policy has disappeared, its grants have been withdrawn everywhere. Until then the policy is
+`Ready=False` with reason `Deleting`, and the message names the clusters it is still being withdrawn
+from. `status.clusters` lists each of them as `Revoking`, or as `ClusterUnavailable` while the cluster
+is offline; an offline cluster also makes the policy `Degraded` with `ClustersFailed`.
+
+A managed cluster that does not reconnect keeps the policy in `Terminating`. If it will not come back,
+set the annotation `fleetpermit.github.io/skip-withdrawal-wait: "true"` on the policy (see
+[Annotations you can set](#annotations-you-can-set)). FleetPermit then releases the finalizer once it
+has requested the deletion of every ManifestWork, without waiting for the work agents, and logs the
+clusters on which removal is not confirmed. The ManifestWorks stay marked for deletion on the hub, so
+a cluster that does reconnect removes the grants then. Until that happens, lease grants on it still
+expire on time, while standing grants (`lease.required: false`) have no expiry. FleetPermit deletes,
+and waits for, only ManifestWorks in the namespace of an existing ManagedCluster, so a cluster that
+has been removed from OCM does not hold up the deletion.
 
 ## ToolAccessLease
 
@@ -106,13 +127,16 @@ through that status field, so a later change to the policy default cannot extend
 the status subresource carries part of the lease's authority. Only the controller should be able to
 write `toolaccessleases/status`; see [RBAC](operations.md#rbac). A principal that could write lease
 status could extend such a lease up to the policy's `maxDuration`. A recorded expiry beyond that
-maximum denies the lease.
+maximum denies the lease. The status also records the UID of the policy the lease belongs to
+(`status.policyUID`, below), which keeps a policy created again under the same name from inheriting
+the lease.
 
 Status:
 
 | Field | Meaning |
 |---|---|
 | `phase` | `Pending`: no requested cluster is placed yet, the enforcement rule limit is reached on every cluster, or the policy does not exist yet (for at most 5 minutes after the lease's creation). `Active`: rendered on at least one cluster. `Expired`, `Denied`: terminal. A summary of the conditions |
+| `policyUID` | the UID of the policy that first evaluated the lease, set by the controller. The lease is granted only under that policy: if the policy is deleted and created again under the same name, the lease is `Denied` with reason `PolicyNotFound`, and the message names the earlier policy's UID. A lease that no policy has evaluated yet, such as one applied before its policy, belongs to the first policy that evaluates it |
 | `expiresAt` | `creationTimestamp` + effective duration. For a lease without `spec.duration`, that is the policy default in effect at first evaluation, pinned here. Policy changes never extend it |
 | `clusters`, `clusterCount` | clusters the grant is rendered for, plus clusters that left the placement and are still being withdrawn from (these do not affect `Ready`); delivery may still be in progress until the lease is `Ready`. After expiry or denial, the clusters the grant is still being withdrawn from |
 | `conditions` | `Ready`, `Progressing`, `Degraded`, `Expired`, `Denied` |
@@ -135,7 +159,7 @@ Reasons on `ToolAccessLease` conditions. Rows marked "policy" are `FleetAccessPo
 | `NoEligibleClusters` | Ready=False (phase Pending) | none of the requested clusters is currently placed |
 | `CapacityExceeded` | Degraded=True (policy: also Ready=False) | the upstream rule limit is reached on the listed clusters. For a lease that fits on no cluster, the lease is in phase `Pending` (Ready=False with the same reason), is not counted as active, and activates when capacity frees up. On a policy, it means standing grants did not fit on the listed clusters |
 | `ClustersFailed` | Degraded=True (policy: also Ready=False) | at least one cluster is `DeliveryFailed` (rendering failed, the hub rejected the ManifestWork, or another policy owns a ManifestWork with the same name), `ApplyFailed` (the work agent could not apply it), `RejectedByEnforcement` or `ClusterUnavailable`; the message lists the clusters |
-| `PolicyNotFound` | Ready=False (phase Pending), or Denied=True | the referenced policy does not exist. A lease that has never been evaluated against its policy (for example one a GitOps tool applied before the policy) waits in `Pending` for up to 5 minutes after its creation; the message names the deadline, and the lease activates if the policy appears in time. After that the lease is `Denied`, which is terminal; if its `spec.duration` ends first, it is `Expired`. A lease that was evaluated and whose policy was then deleted is `Denied`, or `Expired` if it was already past its recorded expiry |
+| `PolicyNotFound` | Ready=False (phase Pending), or Denied=True | the referenced policy does not exist. A lease that has never been evaluated against its policy (for example one a GitOps tool applied before the policy) waits in `Pending` for up to 5 minutes after its creation; the message names the deadline, and the lease activates if the policy appears in time. After that the lease is `Denied`, which is terminal; if its `spec.duration` ends first, it is `Expired`. A lease that was evaluated and whose policy is then deleted is `Denied`, or `Expired` if it was already past its recorded expiry; this happens when the deletion starts, before the policy is gone. A lease evaluated under an earlier policy with the same name (deleted and created again) is `Denied` with this reason, and the message names the earlier policy's UID |
 | `SubjectNotAllowed` | Denied=True | the subject is not in the policy |
 | `PermissionNotAllowed` | Denied=True | a requested tool is not in the policy (the message lists them) |
 | `DurationExceedsMaximum` | Denied=True | the duration exceeds `maxDuration` |
@@ -145,14 +169,25 @@ Reasons on `ToolAccessLease` conditions. Rows marked "policy" are `FleetAccessPo
 | `NotExpired` | Expired=False | the lease has not reached `expiresAt`, or it was denied before it could |
 | `Reconciled` | Progressing=False, Degraded=False (policy: also Ready=True) | nothing is in progress or failing; on a policy, every selected cluster is in the desired state |
 | `NoClustersSelected` | policy: Ready=True | the placement selects no clusters, so nothing is granted |
-| `PlacementNotFound` | policy: Ready=False, Degraded=True | the referenced Placement does not exist; every grant is withdrawn and the policy's leases wait in `Pending` (`NoEligibleClusters`) |
+| `PlacementNotFound` | policy: Ready=False, Degraded=True | the referenced Placement does not exist or is being deleted; every grant is withdrawn and the policy's leases wait in `Pending` (`NoEligibleClusters`) |
+| `Deleting` | policy: Ready=False, Progressing | the policy is being deleted and its grants are still being withdrawn; the message names the clusters. `Progressing` is True while withdrawal is in progress, and False when it waits only for clusters that are not available, which also make the policy `Degraded` with `ClustersFailed`. See [Deleting a policy](#deleting-a-policy) |
 
 `Denied` and `Expired` are terminal, provided only the controller can write
 `toolaccessleases/status`. A policy change that removes a lease's tool or subject, or lowers
 `maxDuration` below the lease's duration, denies it.
-A policy change that would allow a previously denied lease does not revive it. `Pending` is not
+A policy change that would allow a previously denied lease does not revive it, and a lease is
+granted only under the policy that first evaluated it (`status.policyUID`), so a policy deleted and
+created again under the same name does not inherit its leases. `Pending` is not
 terminal: a pending lease activates when its policy is created (within the 5-minute grace period), a
 requested cluster is placed or capacity frees up, as long as it has not expired.
+
+## Annotations you can set
+
+On a `FleetAccessPolicy`:
+
+| Key | Value | Effect |
+|---|---|---|
+| `fleetpermit.github.io/skip-withdrawal-wait` | `"true"` | when the policy is deleted, FleetPermit releases its finalizer once it has requested the deletion of every ManifestWork, without waiting for the work agents to confirm that the grants are gone. Use it only for managed clusters that will not reconnect; removal on those clusters is not confirmed, and the controller logs them. See [Deleting a policy](#deleting-a-policy) |
 
 ## Labels and annotations written by FleetPermit
 
@@ -177,7 +212,11 @@ policy's generation, so a policy edit that does not change a cluster's grants ch
 content digest nor its ManifestWork, and causes no rollout. If a policy disappears without its
 finalizer running (for example because the finalizer was removed by hand), the controller finds its
 ManifestWorks by the `fleetpermit.github.io/policy` annotation and deletes them, each on condition
-that its UID has not changed.
+that its UID has not changed. On deletion, it lists ManifestWorks from the API server rather than from
+its cache, which holds only works labelled `app.kubernetes.io/managed-by: fleetpermit`, so it also
+finds a work that lost that label. It deletes only ManifestWorks named `fleetpermit-*` in the
+namespace of a ManagedCluster. A work of a live policy that lost the label is found on the next
+reconcile, and the label is restored.
 
 ## Samples
 

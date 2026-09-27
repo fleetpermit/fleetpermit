@@ -36,7 +36,7 @@ produces a complete SPDX SBOM with the Kubernetes SIG Release `bom` tool.
 | Open Cluster Management (hub and klusterlet) | v1.3.1 | CNCF Sandbox | Apache-2.0 | cluster selection and delivery |
 | kube-agentic-networking | v0.2.0 | Kubernetes SIG Network | Apache-2.0 | `XAccessPolicy` enforcement (experimental API) |
 | Gateway API | v1.5.1 | Kubernetes SIG Network | Apache-2.0 | `Gateway`, `HTTPRoute` |
-| Envoy | v1.36.6 | CNCF Graduated | Apache-2.0 | data plane (through kube-agentic-networking) |
+| Envoy | v1.36.10 (lab image pinned by tag and digest) | CNCF Graduated | Apache-2.0 | data plane (through kube-agentic-networking) |
 | SPIFFE | spec | CNCF Graduated | Apache-2.0 | identity format |
 
 The kube-agentic-networking `XAccessPolicy` CRD v0.2.0 is vendored unmodified, for schema tests, in
@@ -48,9 +48,9 @@ The kube-agentic-networking `XAccessPolicy` CRD v0.2.0 is vendored unmodified, f
 |---|---|---|---|
 | kind | v0.32.0 | Kubernetes SIG Testing | local clusters |
 | clusteradm | v1.3.1 | Open Cluster Management (CNCF) | OCM bootstrap |
-| Helm | any Helm 3 or later; `hack/install-helm.sh` installs v3.19.0 only when none is installed | CNCF Graduated | installing the chart |
+| Helm | any Helm 3 or later; `hack/install-helm.sh` installs v3.19.0, checked against the Helm project's published SHA-256, when none is installed, or on CI when another version is | CNCF Graduated | installing the chart |
 | MetalLB | v0.15.3 | CNCF Sandbox | gateway addresses on kind |
-| controller-gen, setup-envtest | v0.22.0, release-0.25 | Kubernetes SIGs | code generation, integration tests |
+| controller-gen, setup-envtest | v0.22.0, v0.25.2-0.20260923145615-d837464d41be (`release-0.25` branch) | Kubernetes SIGs | code generation, integration tests |
 | bom | v0.8.0 | Kubernetes SIG Release | SPDX SBOM |
 | govulncheck | v1.1.4 | Go project (toolchain exception) | vulnerability audit |
 | podman (or docker) | any | development infrastructure | runs kind nodes and builds images; FleetPermit code never calls it |

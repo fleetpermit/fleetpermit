@@ -63,7 +63,14 @@ The reconciler requeues at the next lease expiry and at least every two minutes.
 
 Only `PlacementDecision` objects whose controller owner is the policy's `Placement` count. OCM sets that
 owner on the decisions it writes; the placement label alone could be set by anyone allowed to create
-decisions in the namespace.
+decisions in the namespace. Decisions that are being deleted do not count, and a `Placement` that is
+being deleted selects no clusters, like a missing one.
+
+The controller's cache holds only ManifestWorks labelled `app.kubernetes.io/managed-by: fleetpermit`.
+The paths that recover or remove deliveries read ManifestWorks from the API server instead: deleting a
+policy, cleaning up after a policy that disappeared, and creating a work that turns out to exist
+already. A work that lost the label is therefore still restored or removed. On those paths FleetPermit
+deletes only ManifestWorks named `fleetpermit-*` in the namespace of a ManagedCluster.
 
 ## What gets rendered
 
@@ -126,14 +133,18 @@ subject, expiry or target changes it.
 `FleetAccessPolicy.status`: `Ready`, `Progressing` and `Degraded` conditions; `selectedClusters`,
 `readyClusters`, `clusterSummary` (`2/2`) and `activeLeases`; one entry per selected cluster with a
 reason and the desired content digest, plus one entry, reason `Revoking`, for each cluster that left
-the placement until its ManifestWork is gone. A cluster is `Ready` only when OCM's status feedback
-reports the content digest the hub delivered. The list is sorted by name and holds at most 512
+the placement until its ManifestWork is gone. While the policy is being deleted, it is `Ready=False`
+with reason `Deleting`, and every cluster that still holds one of its ManifestWorks is listed as
+`Revoking`, or `ClusterUnavailable` if the cluster is offline. A cluster is `Ready` only when OCM's
+status feedback reports the content digest the hub delivered, and only while its ManagedCluster exists
+and reports `Available`. The list is sorted by name and holds at most 512
 entries; only when more clusters would be listed are the clusters that are not ready listed first, and
 the `Ready` message then says how many are listed. The per-cluster reasons are listed in
 [api.md](api.md#fleetaccesspolicy).
 
 `ToolAccessLease.status`: `Ready`, `Progressing`, `Degraded`, `Expired` and `Denied` conditions; a
-`phase` summary (`Pending`, `Active`, `Expired`, `Denied`); `expiresAt`; and `clusters`, the clusters
+`phase` summary (`Pending`, `Active`, `Expired`, `Denied`); `policyUID`, the policy the lease belongs
+to; `expiresAt`; and `clusters`, the clusters
 the grant is rendered for, plus clusters that left the placement and are still being withdrawn from
 (these do not count towards `Ready`). Delivery to the rendered clusters may still be in progress
 until the lease is `Ready`. After expiry or denial, `clusters` lists the clusters the grant is still being withdrawn from,
@@ -147,12 +158,13 @@ complete. While a cluster is offline, this can last indefinitely.
 | fleetpermit-controller | Existing grants keep working until their expiry, which Envoy enforces. New leases are not activated. | Restart; state is recomputed from the API. A restart neither withdraws nor re-creates grants (S15). |
 | OCM hub (whole hub cluster) | Same as above. Managed clusters keep enforcing their last delivered grants and expire them on time (S11). | On reconnect, the controller withdraws expired grants (S12 records how long it took). |
 | OCM work agent on a cluster | Delivered grants stay enforced and expire on time. Changes (new leases, early revocation) are not applied on that cluster. A cluster with a pending change shows as not ready (`Applying`); FleetPermit reports `ClusterUnavailable` only once OCM marks the ManagedCluster unavailable. | A work agent restart re-syncs. |
-| A managed cluster (offline) | Delivered grants stay enforced and expire on time. Withdrawing grants from the cluster, or delivering to it again while its previous ManifestWork must first be removed, waits for it to reconnect. The cluster is reported `ClusterUnavailable` and counts as failed, so the policy is `Degraded` with `ClustersFailed` rather than `Progressing`. | When OCM marks the cluster available again, the ManagedCluster watch resumes the policy; the controller does not retry it quickly in the meantime. |
+| A managed cluster (offline) | Delivered grants stay enforced and expire on time. Withdrawing grants from the cluster, or delivering to it again while its previous ManifestWork must first be removed, waits for it to reconnect, and so does the deletion of any policy delivered to it. The cluster is reported `ClusterUnavailable` and counts as failed, so the policy is `Degraded` with `ClustersFailed` rather than `Progressing`. A ManagedCluster that does not exist, or cannot be read, is reported the same way ("does not exist", "cluster availability unknown"), never as ready. | When OCM marks the cluster available again, the ManagedCluster watch resumes the policy; the controller does not retry it quickly in the meantime. |
 | Envoy gateway | No path to the tool server; calls fail. | Standard Deployment recovery. |
 | kube-agentic-networking controller | Envoy keeps its last configuration, so decisions do not change and grants still expire on time (S15 restarts it). New grants and early revocations are not programmed into Envoy until the controller returns. | Standard Deployment recovery. |
 | Identity issuance (Pod Certificates signer) | Callers without a valid certificate cannot complete mTLS and are rejected. | Signer recovery; certificates rotate automatically. |
-| The policy's `Placement` (deleted) | Every grant for the policy is withdrawn, and the policy reports `Degraded/PlacementNotFound`. Its leases go to phase `Pending` (`NoEligibleClusters`); they are not denied. | Recreate the placement. Leases that have not expired are delivered again. |
-| The `FleetAccessPolicy` (deleted) | The finalizer withdraws every grant. A lease that was evaluated against the policy becomes `Denied/PolicyNotFound`, which is terminal, or `Expired` if it was already past its recorded expiry. A lease that was never evaluated (for example applied before the policy) waits in `Pending/PolicyNotFound` for up to 5 minutes after its creation, then is denied, or expires if its `spec.duration` ends first. If the finalizer was removed by hand, the controller still finds the policy's ManifestWorks by their `fleetpermit.github.io/policy` annotation and deletes them. | Recreate the policy. Pending leases activate if it appears within their grace period; denied ones need new leases. A policy re-created under the same name first deletes any ManifestWorks the earlier one left, on every cluster; a placed cluster shows `Delivering` until they are gone. |
+| The policy's `Placement` (deleted, or being deleted) | Every grant for the policy is withdrawn, and the policy reports `Degraded/PlacementNotFound`. Its leases go to phase `Pending` (`NoEligibleClusters`); they are not denied. | Recreate the placement. Leases that have not expired are delivered again. |
+| The `FleetAccessPolicy` (deleted) | Its leases end first: a lease that was evaluated against the policy becomes `Denied/PolicyNotFound`, which is terminal, or `Expired` if it was already past its recorded expiry. The finalizer then withdraws every grant and keeps the policy until all its ManifestWorks are gone, which the OCM work agent allows only after removing the delivered objects. Meanwhile the policy is `Ready=False/Deleting`, naming the clusters; they are listed as `Revoking`, or `ClusterUnavailable` (policy `Degraded`) while offline. A lease that was never evaluated (for example applied before the policy) waits in `Pending/PolicyNotFound` for up to 5 minutes after its creation, then is denied, or expires if its `spec.duration` ends first. If the finalizer was removed by hand, the controller still finds the policy's ManifestWorks by their `fleetpermit.github.io/policy` annotation and deletes them. | Automatic for clusters that are reachable. A cluster that will not come back keeps the policy in `Terminating` until the annotation `fleetpermit.github.io/skip-withdrawal-wait: "true"` is set on it, which releases the policy once the deletions are requested; removal on that cluster is then not confirmed ([api.md](api.md#deleting-a-policy)). Recreate the policy to grant again. Pending leases activate if it appears within their grace period; denied ones need new leases, and a lease granted under the earlier policy is never granted under the new one (`status.policyUID`). A policy re-created under the same name first deletes any ManifestWorks the earlier one left, on every cluster; a placed cluster shows `Delivering` until they are gone. |
+| FleetPermit's `app.kubernetes.io/managed-by` label on a ManifestWork (removed on the hub) | None: the cluster keeps what it holds. The controller's cache no longer sees the work. | Automatic. The next reconcile finds the work when it tries to create it, reads it from the API server and restores the label; deleting the policy removes the work even while the label is missing (`TestWorkThatLostItsLabelIsStillManaged`). |
 | Rendering fails for a cluster | That cluster's grants are withdrawn and the cluster is reported `DeliveryFailed`. | Fix the input. The controller retries after 1 s, then 2, 4, 8 s and so on up to 2 minutes while the failure persists; a fix that triggers no event can take up to that delay to be noticed. |
 | Delivering the ManifestWork fails (the hub rejects it, or another policy owns one with the same name) | The cluster is reported `DeliveryFailed`; what it already holds stays in place. | Fix the cause. Retries back off in the same way, and any reconcile without a failure resets the backoff. |
 | A delivered XAccessPolicy is deleted on a cluster | The gateway may still allow calls briefly, until it drops the deleted rule; then the anchor denies. OCM reports the object missing at its next status sync (every 10 s in the lab), and FleetPermit then asks the work agent to re-apply it immediately (S10). | Automatic; results.md shows the measured drift recovery time. |

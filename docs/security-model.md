@@ -43,7 +43,8 @@ Grant `create` on `toolaccessleases`. Do not grant `update` (the spec is immutab
 `delete` only to principals that should be able to revoke early. Grant write access to
 `toolaccessleases/status` to the controller only: a lease without `spec.duration` keeps its expiry in
 `status.expiresAt`, and a principal that can write it could extend that lease up to the policy's
-`maxDuration`.
+`maxDuration`. Such a principal could also clear `status.policyUID`, which binds a lease to the policy
+that first evaluated it, so that a policy created again under the same name would grant the lease.
 
 The controller itself is a privileged identity on the hub. It has no access to the Secret, workload
 or RBAC APIs, but its `ManifestWork` permissions cover every managed-cluster namespace: it can read
