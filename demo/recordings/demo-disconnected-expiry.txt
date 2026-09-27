@@ -1,0 +1,70 @@
+FleetPermit — the lease still expires when the hub is gone
+
+[1/6] Create a 40s lease and confirm it works on both production clusters
+      $ kubectl get toolaccesslease maintenance-window
+      NAME                 POLICY            CLUSTERS   EXPIRES-AT             STATUS   AGE
+      maintenance-window   sre-remediation   2          2026-09-26T15:46:52Z   Active   1s
+      sre-agent       cluster-east  restart_workload    ALLOWED  restart of shop/checkout accepted (simulated
+      sre-agent       cluster-west  restart_workload    ALLOWED  restart of shop/checkout accepted (simulated
+
+[2/6] Disconnect the hub (pause the hub node: OCM hub and FleetPermit stop)
+      $ podman pause fleetpermit-hub-control-plane
+      $ kubectl --context hub get fleetaccesspolicy
+      Unable to connect to the server: context deadline exceeded (Client.Timeout exceeded while awaiting h
+
+[3/6] Managed clusters keep enforcing the time bound on their own
+      $ kubectl --context cluster-east -n mcp-tools get xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779b9dca599 -o jsonpath='{..cel.expression}'
+      request.mcp.tool_name in ['restart_workload'] && request.time < timestamp('2026-09-26T15:46:52Z')
+
+      lease expires in  33s
+      lease expires in  32s
+      lease expires in  30s
+      lease expires in  29s
+      lease expires in  28s
+      lease expires in  27s
+      lease expires in  26s
+      lease expires in  25s
+      lease expires in  24s
+      lease expires in  23s
+      lease expires in  22s
+      lease expires in  21s
+      lease expires in  20s
+      lease expires in  19s
+      lease expires in  18s
+      lease expires in  17s
+      lease expires in  16s
+      lease expires in  15s
+      lease expires in  14s
+      lease expires in  12s
+      lease expires in  11s
+      lease expires in  10s
+      lease expires in   9s
+      lease expires in   8s
+      lease expires in   7s
+      lease expires in   6s
+      lease expires in   5s
+      lease expires in   4s
+      lease expires in   3s
+      lease expires in   2s
+      lease expires in   1s
+      lease expires in 0s — expired
+
+[4/6] Hub still unreachable, lease expired
+      sre-agent       cluster-east  restart_workload    DENIED   Access to this tool is forbidden.
+      sre-agent       cluster-west  restart_workload    DENIED   Access to this tool is forbidden.
+      $ kubectl --context cluster-east -n mcp-tools get xaccesspolicy
+      NAME                                           AGE
+      fleetpermit-default-deny                       6h38m
+      fleetpermit-sre-remediation-a46c9779b9dca599   3h31m
+      the grant object is still present; the gateway denies because request.time passed the bound
+
+[5/6] Reconnect the hub
+      $ podman unpause fleetpermit-hub-control-plane
+
+[6/6] Converged: expired grant withdrawn from the fleet
+      $ kubectl get toolaccesslease maintenance-window
+      NAME                 POLICY            CLUSTERS   EXPIRES-AT             STATUS    AGE
+      maintenance-window   sre-remediation              2026-09-26T15:46:52Z   Expired   43s
+      $ kubectl --context cluster-east -n mcp-tools get xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779b9dca599 -o jsonpath='{.spec.rules[*].name}'
+      no-active-grants   (the policy stays in place, with no grants)
+      sre-agent       cluster-east  restart_workload    DENIED   Access to this tool is forbidden.

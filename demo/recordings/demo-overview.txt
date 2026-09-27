@@ -1,0 +1,74 @@
+FleetPermit — least privilege for agents, across every cluster
+
+[1/8] Fleet status (Open Cluster Management placement: env=production)
+      cluster-east    env=production  selected
+      cluster-west    env=production  selected
+      cluster-edge    env=staging     not selected
+
+[2/8] Policy exists, but no lease: nothing is granted
+      $ kubectl get fleetaccesspolicy
+      NAME              CLUSTERS   READY   ACTIVE-LEASES   AGE
+      sre-remediation   2/2        True                    6h30m
+      sre-agent       cluster-east  restart_workload    DENIED   Access to this tool is forbidden.
+
+[3/8] Create a 40s lease for restart_workload
+      $ kubectl create -f incident-42.yaml   # restart_workload, 40s
+      $ kubectl get toolaccesslease incident-42
+      NAME          POLICY            CLUSTERS   EXPIRES-AT             STATUS   AGE
+      incident-42   sre-remediation   2          2026-09-26T15:45:37Z   Active   0s
+
+[4/8] Allowed call on every selected cluster
+      sre-agent       cluster-east  restart_workload    ALLOWED  restart of shop/checkout accepted (simulated
+      sre-agent       cluster-west  restart_workload    ALLOWED  restart of shop/checkout accepted (simulated
+
+[5/8] Wrong cluster: cluster-edge is not in the placement
+      sre-agent       cluster-edge  restart_workload    DENIED   Access to this tool is forbidden.
+
+[6/8] Forbidden tool and wrong identity
+      sre-agent       cluster-east  read_secret         DENIED   Access to this tool is forbidden.
+      security-agent  cluster-east  restart_workload    DENIED   Access to this tool is forbidden.
+
+[7/8] The expiry is part of the rule the gateway evaluates
+      $ kubectl --context cluster-east -n mcp-tools get xaccesspolicy.agentic.networking.x-k8s.io/fleetpermit-sre-remediation-a46c9779b9dca599 -o jsonpath='{..cel.expression}'
+      request.mcp.tool_name in ['restart_workload'] && request.time < timestamp('2026-09-26T15:45:37Z')
+
+      lease incident-42 expires in  34s
+      lease incident-42 expires in  33s
+      lease incident-42 expires in  32s
+      lease incident-42 expires in  31s
+      lease incident-42 expires in  30s
+      lease incident-42 expires in  29s
+      lease incident-42 expires in  27s
+      lease incident-42 expires in  26s
+      lease incident-42 expires in  25s
+      lease incident-42 expires in  24s
+      lease incident-42 expires in  23s
+      lease incident-42 expires in  22s
+      lease incident-42 expires in  21s
+      lease incident-42 expires in  20s
+      lease incident-42 expires in  19s
+      lease incident-42 expires in  18s
+      lease incident-42 expires in  17s
+      lease incident-42 expires in  16s
+      lease incident-42 expires in  15s
+      lease incident-42 expires in  14s
+      lease incident-42 expires in  13s
+      lease incident-42 expires in  12s
+      lease incident-42 expires in  11s
+      lease incident-42 expires in  10s
+      lease incident-42 expires in   9s
+      lease incident-42 expires in   7s
+      lease incident-42 expires in   6s
+      lease incident-42 expires in   5s
+      lease incident-42 expires in   4s
+      lease incident-42 expires in   3s
+      lease incident-42 expires in   2s
+      lease incident-42 expires in   1s
+      lease incident-42 expires in 0s — expired
+
+[8/8] Call after expiry
+      sre-agent       cluster-east  restart_workload    DENIED   Access to this tool is forbidden.
+      sre-agent       cluster-west  restart_workload    DENIED   Access to this tool is forbidden.
+      $ kubectl get toolaccesslease incident-42
+      NAME          POLICY            CLUSTERS   EXPIRES-AT             STATUS    AGE
+      incident-42   sre-remediation              2026-09-26T15:45:37Z   Expired   40s

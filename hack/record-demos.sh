@@ -50,6 +50,10 @@ done
 
 # Keep the casts in the repository, next to the README that describes them.
 cp "${out}"/demo-*.cast demo/recordings/
+# A plain-text transcript of each recording is the text alternative for its video.
+for c in demo/recordings/demo-*.cast; do
+  python3 "$(dirname "$0")/cast-to-text.py" "$c" >"${c%.cast}.txt"
+done
 # With FP_SITE_DIR set to a website checkout, publish the videos and posters.
 if [[ -n "${FP_SITE_DIR:-}" && -d "${FP_SITE_DIR}/assets/video" ]]; then
   for f in "${out}"/demo-*.mp4; do
