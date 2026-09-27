@@ -13,7 +13,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 BIN_DIR := $(CURDIR)/bin
 CONTROLLER_GEN_VERSION ?= v0.22.0
 ENVTEST_K8S_VERSION ?= 1.35.0
-ENVTEST_VERSION ?= release-0.25
+ENVTEST_VERSION ?= v0.25.2-0.20260923145615-d837464d41be
 GOVULNCHECK_VERSION ?= v1.1.4
 BOM_VERSION ?= v0.8.0
 
