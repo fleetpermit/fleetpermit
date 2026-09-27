@@ -99,8 +99,21 @@ all_clusters() { printf '%s\n' "${FP_HUB_NAME}" ${FP_MANAGED_CLUSTERS}; }
 
 lab_marker() { printf '%s/created-clusters' "${FP_WORK_DIR}"; }
 
-# kind_clusters lists existing kind clusters with the lab prefix.
-kind_clusters() { kind get clusters 2>/dev/null | grep -E "^${FP_LAB_NAME}-" || true; }
+# kind_clusters lists existing kind clusters with the lab prefix. Some podman
+# releases break kind's own listing, so it falls back to the container
+# engine's labels (podman prints a JSON array with a Labels object, docker one
+# object per line with a comma-separated Labels string).
+kind_clusters() {
+  local list
+  if ! list="$(kind get clusters 2>/dev/null)"; then
+    list="$("${CONTAINER_ENGINE:-podman}" ps -a --filter label=io.x-k8s.kind.cluster --format json 2>/dev/null \
+      | jq -r '(if type == "array" then .[] else . end) | .Labels
+               | if type == "object" then .["io.x-k8s.kind.cluster"]
+                 else (split(",")[] | select(startswith("io.x-k8s.kind.cluster=")) | sub("^io.x-k8s.kind.cluster="; "")) end' \
+      2>/dev/null | sort -u)"
+  fi
+  grep -E "^${FP_LAB_NAME}-" <<<"${list}" || true
+}
 
 wait_for() {
   # wait_for <timeout-seconds> <description> <command...>

@@ -15,6 +15,7 @@ if [[ ! -f "${marker}" ]]; then
   exit 0
 fi
 existing="$(kind_clusters)"
+failed=0
 while read -r name; do
   [[ -n "${name}" ]] || continue
   if [[ "${name}" != "${FP_LAB_NAME}-"* ]]; then
@@ -23,9 +24,18 @@ while read -r name; do
   fi
   if grep -qx "${name}" <<<"${existing}"; then
     say "Deleting kind cluster ${name}"
-    kind delete cluster --name "${name}" --kubeconfig "${FP_KUBECONFIG}" >/dev/null 2>&1
+    if ! out="$(kind delete cluster --name "${name}" --kubeconfig "${FP_KUBECONFIG}" 2>&1)"; then
+      warn "could not delete ${name}: ${out}"
+      failed=1
+    fi
   fi
 done <"${marker}"
+# Keep the marker and kubeconfig unless every recorded cluster is gone, so a
+# failed teardown can be retried instead of losing track of the clusters.
+left="$(kind_clusters | grep -Fx -f "${marker}" || true)"
+if (( failed )) || [[ -n "${left}" ]]; then
+  die "lab clusters still present: ${left:-see the warnings above}; the marker and kubeconfig are kept, re-run to retry"
+fi
 rm -f "${marker}" "${FP_KUBECONFIG}"
 rm -rf "${FP_WORK_DIR}/images"
 say "Lab removed"
