@@ -43,6 +43,8 @@ tracing:
 rbac:
   create: true
 
+# With create=false, set name to an existing, dedicated ServiceAccount; the chart
+# refuses to bind the controller's ClusterRole to the namespace's default one.
 serviceAccount:
   create: true
   name: ""

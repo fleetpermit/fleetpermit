@@ -10,6 +10,9 @@ metadata:
   {{- end }}
 {{- end }}
 {{- if .Values.rbac.create }}
+{{- if and (not .Values.serviceAccount.create) (or (not .Values.serviceAccount.name) (eq .Values.serviceAccount.name "default")) }}
+{{- fail "serviceAccount.create=false with rbac.create=true needs serviceAccount.name set to a dedicated ServiceAccount: binding the controller's ClusterRole to the namespace's default ServiceAccount would give every pod using it the controller's authority" }}
+{{- end }}
 ---
 # Generated from the +kubebuilder:rbac markers in internal/controller.
 # Read-only on OCM placement and cluster APIs; write only on ManifestWork and
